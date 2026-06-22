@@ -1979,3 +1979,412 @@ test('falha na task: se addComment lança, CF_ERRO_PUBLICACAO ainda é gravado e
 
   fetchMock.mock.restore();
 });
+
+// ---------------------------------------------------------------------------
+// REEL COVER / THUMBNAIL — Tests 24-27
+//
+// Feature: zips de Reels podem conter 1 arquivo de capa nomeado capa.<ext> ou cover.<ext>
+// (case-insensitive, extensão de imagem). Quando presente:
+//   - A capa é enviada ao GHL via uploadMedia separadamente.
+//   - A capa é anexada ao item de media do vídeo como media[0].thumbnail.
+//   - A capa NUNCA aparece como slide de media (não faz parte do array de mídia normal).
+// Quando ausente: o agendamento prossegue normalmente sem thumbnail.
+// Formato não-Reels (Carrossel, Feed): capa é excluída de media[] e ignorada (sem thumbnail).
+// ---------------------------------------------------------------------------
+
+// Constante para orderindex 0 = Reels
+const FORMATO_REELS_ORDERINDEX = 0;
+
+/** Helper: task elegível de Reels */
+function makeReelsTask(overrides = {}) {
+  return {
+    id: 'REELS001',
+    name: 'Post Reels de teste',
+    status: { status: 'agendado' },
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda Reels' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/reel.zip' },
+      { id: CF_FORMATO,         value: FORMATO_REELS_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+    ...overrides,
+  };
+}
+
+/**
+ * Helper: stub de fetch para um batch com 1 task de Reels.
+ * Aceita zipBuffer customizado e captura chamadas de upload e createPost.
+ */
+function makeReelsFetchMock({ zipBuffer, uploadUrls = [], captures }) {
+  let uploadIdx = 0;
+  return async function fetchStub(url, reqOpts) {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (reqOpts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [makeReelsTask()] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (reqOpts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, {
+        fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+          { orderindex: 0, name: 'Reels' },
+          { orderindex: 1, name: 'Carrossel' },
+          { orderindex: 2, name: 'Stories' },
+          { orderindex: 3, name: 'Feed estático' },
+        ]}}],
+      });
+    }
+
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() {
+          return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength);
+        },
+      };
+    }
+
+    if (urlStr.includes('/medias/upload-file')) {
+      const uploadUrl = uploadUrls[uploadIdx] ?? `https://cdn.ghl.com/upload-${uploadIdx}.bin`;
+      if (captures) captures.uploads.push({ url: uploadUrl, idx: uploadIdx });
+      uploadIdx++;
+      return fakeResponse(200, { url: uploadUrl, fileId: `FID${uploadIdx}` });
+    }
+
+    if (urlStr.includes('/posts') && reqOpts?.method === 'POST') {
+      const body = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : reqOpts.body;
+      if (captures) captures.createPost = body;
+      return fakeResponse(201, { results: { post: { _id: 'PID_REEL_COVER' } } });
+    }
+
+    if (urlStr.match(/\/task\/REELS001\/field\//) && reqOpts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/REELS001/comment') && reqOpts?.method === 'POST') return fakeResponse(200, {});
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// TEST 24: Reels + capa.jpg → 2 uploadMedia (vídeo + capa), createPost media[0].thumbnail = coverUrl
+// ---------------------------------------------------------------------------
+
+test('Reels + capa: zip com 1.mp4 + capa.jpg → 2 uploadMedia; createPost media[0].thumbnail = coverUrl; capa NÃO é slide', async (t) => {
+  const VIDEO_URL  = 'https://cdn.ghl.com/reel-video.mp4';
+  const COVER_URL  = 'https://cdn.ghl.com/reel-cover.jpg';
+
+  const zipBuffer = makeZipBuffer([
+    { name: '1.mp4',    content: 'fake-video-bytes' },
+    { name: 'capa.jpg', content: 'fake-cover-bytes' },
+  ]);
+
+  const captures = { uploads: [], createPost: null };
+
+  const fetchMock = t.mock.method(
+    globalThis, 'fetch',
+    makeReelsFetchMock({ zipBuffer, uploadUrls: [VIDEO_URL, COVER_URL], captures }),
+  );
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  fetchMock.mock.restore();
+
+  // 2 uploads: vídeo + capa
+  assert.strictEqual(captures.uploads.length, 2, 'Deve chamar uploadMedia 2 vezes (vídeo + capa)');
+
+  // createPost deve ter sido chamado
+  assert.ok(captures.createPost !== null, 'createPost deve ter sido chamado');
+
+  // type deve ser 'reel'
+  assert.strictEqual(captures.createPost.type, 'reel', 'type deve ser "reel"');
+
+  // media[] deve ter exatamente 1 item (só o vídeo — capa NÃO é slide)
+  assert.strictEqual(
+    captures.createPost.media.length, 1,
+    `media[] deve ter 1 item (só o vídeo). Recebido: ${captures.createPost.media.length}`,
+  );
+
+  // O item de vídeo deve ter a URL do vídeo
+  assert.strictEqual(
+    captures.createPost.media[0].url, VIDEO_URL,
+    `media[0].url deve ser a URL do vídeo. Recebido: ${captures.createPost.media[0].url}`,
+  );
+
+  // O item de vídeo deve ter thumbnail = coverUrl
+  assert.strictEqual(
+    captures.createPost.media[0].thumbnail, COVER_URL,
+    `media[0].thumbnail deve ser a URL da capa. Recebido: ${captures.createPost.media[0].thumbnail}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// TEST 25: Reels sem capa → 1 uploadMedia, createPost media[0] SEM thumbnail
+// ---------------------------------------------------------------------------
+
+test('Reels sem capa: zip com apenas 1.mp4 → 1 uploadMedia, createPost media[0] sem thumbnail', async (t) => {
+  const VIDEO_URL = 'https://cdn.ghl.com/reel-only-video.mp4';
+
+  const zipBuffer = makeZipBuffer([
+    { name: '1.mp4', content: 'fake-video-bytes' },
+  ]);
+
+  const captures = { uploads: [], createPost: null };
+
+  const fetchMock = t.mock.method(
+    globalThis, 'fetch',
+    makeReelsFetchMock({ zipBuffer, uploadUrls: [VIDEO_URL], captures }),
+  );
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  fetchMock.mock.restore();
+
+  // 1 upload: apenas o vídeo
+  assert.strictEqual(captures.uploads.length, 1, 'Deve chamar uploadMedia 1 vez (apenas vídeo)');
+
+  // createPost deve ter sido chamado
+  assert.ok(captures.createPost !== null, 'createPost deve ter sido chamado');
+
+  // type deve ser 'reel'
+  assert.strictEqual(captures.createPost.type, 'reel', 'type deve ser "reel"');
+
+  // media[] deve ter 1 item sem thumbnail
+  assert.strictEqual(captures.createPost.media.length, 1, 'media[] deve ter 1 item');
+
+  // thumbnail deve estar ausente (undefined ou sem a chave)
+  assert.strictEqual(
+    captures.createPost.media[0].thumbnail,
+    undefined,
+    `media[0].thumbnail deve ser undefined quando não há capa. Recebido: ${captures.createPost.media[0].thumbnail}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// TEST 26: Carrossel com capa.png stray → media[] tem só os slides; capa excluída
+// ---------------------------------------------------------------------------
+
+test('Carrossel com capa.png stray: media[] contém apenas 1.jpg e 2.jpg; capa excluída; sem thumbnail', async (t) => {
+  const SLIDE1_URL = 'https://cdn.ghl.com/carousel-slide1.jpg';
+  const SLIDE2_URL = 'https://cdn.ghl.com/carousel-slide2.jpg';
+
+  const zipBuffer = makeZipBuffer([
+    { name: '1.jpg',    content: 'slide1' },
+    { name: '2.jpg',    content: 'slide2' },
+    { name: 'capa.png', content: 'stray-cover' },
+  ]);
+
+  const captures = { uploads: [], createPost: null };
+
+  // Task de Carrossel (orderindex 1)
+  function makeCarrosselTaskWithCover() {
+    return {
+      id: 'CAROUSEL_COVER001',
+      name: 'Carrossel com capa stray',
+      status: { status: 'agendado' },
+      custom_fields: [
+        { id: CF_GHL_POST_ID,     value: null },
+        { id: CF_LEGENDA,         value: 'Legenda carrossel com capa stray' },
+        { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/carousel-cover.zip' },
+        { id: CF_FORMATO,         value: FORMATO_CARROSSEL_ORDERINDEX }, // Carrossel
+        { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+      ],
+    };
+  }
+
+  let uploadIdx = 0;
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, reqOpts) => {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (reqOpts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [makeCarrosselTaskWithCover()] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (reqOpts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    if (urlStr.includes('/medias/upload-file')) {
+      const slideUrl = uploadIdx === 0 ? SLIDE1_URL : SLIDE2_URL;
+      captures.uploads.push({ url: slideUrl, idx: uploadIdx });
+      uploadIdx++;
+      return fakeResponse(200, { url: slideUrl, fileId: `FSLD${uploadIdx}` });
+    }
+
+    if (urlStr.includes('/posts') && reqOpts?.method === 'POST') {
+      captures.createPost = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : reqOpts.body;
+      return fakeResponse(201, { results: { post: { _id: 'PID_CAROUSEL_COVER' } } });
+    }
+
+    if (urlStr.match(/\/task\/CAROUSEL_COVER001\/field\//) && reqOpts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/CAROUSEL_COVER001/comment') && reqOpts?.method === 'POST') return fakeResponse(200, {});
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  fetchMock.mock.restore();
+
+  // Apenas 2 uploads: os slides (capa não deve ser enviada)
+  assert.strictEqual(captures.uploads.length, 2, 'Carrossel com capa stray: 2 uploads (somente slides, sem capa)');
+
+  // createPost deve ter sido chamado
+  assert.ok(captures.createPost !== null, 'createPost deve ter sido chamado');
+
+  // type deve ser 'post' (Carrossel)
+  assert.strictEqual(captures.createPost.type, 'post', 'Carrossel: type deve ser "post"');
+
+  // media[] deve ter apenas 2 itens (os slides)
+  assert.strictEqual(
+    captures.createPost.media.length, 2,
+    `media[] deve ter 2 slides. Recebido: ${captures.createPost.media.length}`,
+  );
+
+  // Confirmar URLs dos slides
+  assert.strictEqual(captures.createPost.media[0].url, SLIDE1_URL, 'media[0] deve ser slide 1');
+  assert.strictEqual(captures.createPost.media[1].url, SLIDE2_URL, 'media[1] deve ser slide 2');
+
+  // Nenhum item deve ter thumbnail (Carrossel ignora capa)
+  for (const item of captures.createPost.media) {
+    assert.strictEqual(item.thumbnail, undefined, 'Carrossel: nenhum item deve ter thumbnail');
+  }
+});
+
+// ---------------------------------------------------------------------------
+// TEST 27: Detecção de capa — case-insensitive e suporte a cover.<ext>
+// ---------------------------------------------------------------------------
+
+test('detecção de capa: CAPA.JPG (maiúsculas) e cover.png são detectados como capa', async (t) => {
+  // Sub-teste A: CAPA.JPG maiúsculo
+  {
+    const VIDEO_URL = 'https://cdn.ghl.com/reel-v.mp4';
+    const COVER_URL = 'https://cdn.ghl.com/reel-c.jpg';
+
+    const zipBuffer = makeZipBuffer([
+      { name: '1.mp4',    content: 'vid' },
+      { name: 'CAPA.JPG', content: 'cap' }, // maiúsculo
+    ]);
+
+    const captures = { uploads: [], createPost: null };
+    const fetchMock = t.mock.method(
+      globalThis, 'fetch',
+      makeReelsFetchMock({ zipBuffer, uploadUrls: [VIDEO_URL, COVER_URL], captures }),
+    );
+
+    const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+    await runSchedulerBatch();
+    fetchMock.mock.restore();
+
+    assert.strictEqual(captures.uploads.length, 2, 'CAPA.JPG maiúsculo: deve detectar e fazer 2 uploads');
+    assert.strictEqual(captures.createPost?.media.length, 1, 'CAPA.JPG maiúsculo: media[] deve ter 1 item');
+    assert.strictEqual(
+      captures.createPost?.media[0].thumbnail, COVER_URL,
+      'CAPA.JPG maiúsculo: thumbnail deve ser definido',
+    );
+  }
+
+  // Sub-teste B: cover.png
+  {
+    const VIDEO_URL  = 'https://cdn.ghl.com/reel-v2.mp4';
+    const COVER_URL  = 'https://cdn.ghl.com/reel-c2.png';
+
+    const zipBuffer = makeZipBuffer([
+      { name: '1.mp4',     content: 'vid2' },
+      { name: 'cover.png', content: 'cov2' }, // nome alternativo
+    ]);
+
+    const captures = { uploads: [], createPost: null };
+
+    // Precisamos de uma task diferente para evitar conflito de taskId com sub-teste A
+    function makeReelsTask2() {
+      return {
+        id: 'REELS002',
+        name: 'Post Reels cover.png',
+        status: { status: 'agendado' },
+        custom_fields: [
+          { id: CF_GHL_POST_ID,     value: null },
+          { id: CF_LEGENDA,         value: 'Legenda Reels 2' },
+          { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/reel2.zip' },
+          { id: CF_FORMATO,         value: FORMATO_REELS_ORDERINDEX },
+          { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+        ],
+      };
+    }
+
+    let uploadIdx = 0;
+    const fetchMock2 = t.mock.method(globalThis, 'fetch', async (url, reqOpts) => {
+      const urlStr = String(url);
+
+      if (urlStr.includes('/list/') && urlStr.includes('/task?') && (reqOpts?.method ?? 'GET') === 'GET') {
+        const u = new URL(urlStr);
+        if (Number(u.searchParams.get('page') ?? '0') === 0) {
+          return fakeResponse(200, { tasks: [makeReelsTask2()] });
+        }
+        return fakeResponse(200, { tasks: [] });
+      }
+
+      if (urlStr.includes('/field') && (reqOpts?.method ?? 'GET') === 'GET') {
+        return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+          { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+          { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+        ]}}] });
+      }
+
+      if (urlStr.includes('minio.example.com')) {
+        return {
+          status: 200, ok: true, headers: { get: () => null },
+          async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+        };
+      }
+
+      if (urlStr.includes('/medias/upload-file')) {
+        const u = uploadIdx === 0 ? VIDEO_URL : COVER_URL;
+        captures.uploads.push({ url: u, idx: uploadIdx });
+        uploadIdx++;
+        return fakeResponse(200, { url: u, fileId: `FID${uploadIdx}` });
+      }
+
+      if (urlStr.includes('/posts') && reqOpts?.method === 'POST') {
+        captures.createPost = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : reqOpts.body;
+        return fakeResponse(201, { results: { post: { _id: 'PID_COVER_PNG' } } });
+      }
+
+      if (urlStr.match(/\/task\/REELS002\/field\//) && reqOpts?.method === 'POST') return fakeResponse(200, {});
+      if (urlStr.includes('/task/REELS002/comment') && reqOpts?.method === 'POST') return fakeResponse(200, {});
+
+      return fakeResponse(404, { err: `Unexpected: ${urlStr}` });
+    });
+
+    const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+    await runSchedulerBatch();
+    fetchMock2.mock.restore();
+
+    assert.strictEqual(captures.uploads.length, 2, 'cover.png: deve detectar e fazer 2 uploads');
+    assert.strictEqual(captures.createPost?.media.length, 1, 'cover.png: media[] deve ter 1 item');
+    assert.strictEqual(
+      captures.createPost?.media[0].thumbnail, COVER_URL,
+      'cover.png: thumbnail deve ser definido',
+    );
+  }
+});
