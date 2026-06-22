@@ -12,15 +12,27 @@
  * processTask:
  *   1. resolveContent: legenda + link com fallback campo-a-campo para task mãe (SCH-02/D-04/D-05/D-06)
  *   2. mapFormato: orderindex → {ghlType, mediaCount}
- *   3. downloadAndExtract com zip-slip/SSRF/magic-bytes guards (SCH-03)
- *   4. uploadMedia para cada arquivo extraído (único para este plano — Plano 03 cobre carrossel)
- *   5. createPost agendado no GHL Social Planner com userId (CRÍTICO) (SCH-04)
- *   6. write-back de sucesso: updateTask(agendado) → setCustomField(CF_GHL_POST_ID) (SCH-05)
- *   7. try/finally: cleanupTmp sempre executado (D-11)
+ *   3. Validação: data no passado, Formato vazio/Stories/desconhecido, legenda/mídia ausente (D-13/D-14)
+ *   4. downloadAndExtract com zip-slip/SSRF/magic-bytes guards (SCH-03)
+ *   5. uploadMedia para cada arquivo extraído — Carrossel: todos os arquivos em ordem numérica (SCH-04/D-10)
+ *                                              Reels/Feed: arquivo único (primeiro)
+ *   6. createPost agendado no GHL Social Planner com userId (CRÍTICO) (SCH-04)
+ *      - type: 'post' | 'reel' (NUNCA 'carousel' — Pitfall 1/A1)
+ *      - media[]: todos os arquivos para Carrossel, 1 arquivo para Reels/Feed (D-10)
+ *   7. write-back de sucesso: updateTask(agendado) → setCustomField(CF_GHL_POST_ID) (SCH-05)
+ *   8. try/finally: cleanupTmp sempre executado (D-11)
+ *
+ * Falha de validação / erro GHL/MinIO:
+ *   - setCustomField(CF_ERRO_PUBLICACAO, mensagemCurta) SEM updateTask de status (D-14/D-15/SCH-07)
+ *   - Status permanece STATUS_A_AGENDAR para retry
+ *   - Mensagem curta, sem stack trace, sem URL, sem token (D-15/T-02-03)
+ *   - Falha isolada não aborta o batch (D-18/T-02-10)
  *
  * Segurança:
  *   - NUNCA logar zipUrl/link do MinIO — só taskId e fileName (T-02-03)
  *   - Tokens e headers auth redactados pelo logger (T-01-02, configurado em logger.js)
+ *   - Mensagem de Erro de publicação derivada de AppError.message ou String(err.message) — sem body bruto
+ *   - Truncada a MAX_ERRO_MSG_LEN chars; defensivamente sem http/pit-/pk_
  *
  * Exportações públicas:
  *   runSchedulerBatch()                → Promise<void>
@@ -32,11 +44,15 @@
 
 import { config } from '../config/index.js';
 import { withContext } from '../lib/logger.js';
+import { AppError } from '../lib/errors.js';
 import { clickup } from '../clients/clickup.js';
 import { ghl } from '../clients/ghl.js';
 import { downloadAndExtract, cleanupTmp, mimeFromFilename } from '../lib/zip.js';
 
 const log = withContext({ module: 'scheduler', action: 'runSchedulerBatch' });
+
+// Comprimento máximo da mensagem de Erro de publicação (D-15/T-02-03)
+const MAX_ERRO_MSG_LEN = 200;
 
 // ---------------------------------------------------------------------------
 // Mapa Formato → tipo GHL (D-12, Pattern 5 do PATTERNS.md)
@@ -55,6 +71,9 @@ const FORMATO_MAP = {
   // 'Sequência' pode aparecer em outras workspaces — mapeado como post/single por segurança
   'Sequência':      { ghlType: 'post',  mediaCount: 'single'   },
 };
+
+// Formatos explicitamente inválidos nesta fase (D-13)
+const FORMATO_INVALIDO = new Set(['Stories']);
 
 // ---------------------------------------------------------------------------
 // Helpers exportados (testáveis)
@@ -77,20 +96,24 @@ export function readCF(task, fieldId) {
 
 /**
  * Mapeia o label do Formato (ex: 'Reels', 'Feed estático') para o tipo GHL.
- * Lança se o formato for desconhecido ou inválido (ex: 'Stories' é D-13).
+ * Lança com mensagem curta e segura se o formato for vazio, inválido (Stories — D-13) ou desconhecido.
  *
- * @param {string} name - Label do formato (ex: 'Reels', 'Feed estático')
+ * @param {string | null | undefined} name - Label do formato (ex: 'Reels', 'Feed estático')
  * @returns {{ghlType: 'post'|'reel', mediaCount: 'single'|'multiple'}}
- * @throws {Error} Se o formato não for suportado
+ * @throws {Error} Se o formato não for suportado (mensagem segura para Erro de publicação)
  */
 export function mapFormato(name) {
+  // Formato vazio/null → falha de validação (D-13)
+  if (!name || String(name).trim() === '') {
+    throw new Error('Formato vazio');
+  }
+  // Formato explicitamente inválido (Stories — D-13)
+  if (FORMATO_INVALIDO.has(name)) {
+    throw new Error(`Formato ${name} não suportado`);
+  }
   const mapped = FORMATO_MAP[name];
   if (!mapped) {
-    throw new Error(
-      `Formato não suportado: "${name}". ` +
-      `Suportados: ${Object.keys(FORMATO_MAP).join(', ')}. ` +
-      `"Stories" está fora do escopo da Phase 2 (D-13).`,
-    );
+    throw new Error(`Formato ${name} não suportado`);
   }
   return mapped;
 }
@@ -167,23 +190,29 @@ export async function processTask(task, formatoOptionsMap) {
   const { legenda, linkDoPost } = await resolveContent(task);
 
   // --- 2. Mapear Formato → tipo GHL ---
+  // Validação de Formato ANTES de qualquer chamada ao GHL (D-13)
   const formatoOrderindex = readCF(task, config.CF_FORMATO);
   // formatoOptionsMap é um Map<orderindex, label> construído pelo runSchedulerBatch via getListFields
-  const formatoLabel = formatoOptionsMap.get(Number(formatoOrderindex));
+  const formatoLabel = formatoOrderindex !== null && formatoOrderindex !== undefined
+    ? (formatoOptionsMap.get(Number(formatoOrderindex)) ?? null)
+    : null;
   if (!formatoLabel) {
-    throw new Error(
-      `Formato não resolvido: orderindex "${formatoOrderindex}" não encontrado no mapa de opções. ` +
-      `Opções disponíveis: ${JSON.stringify(Object.fromEntries(formatoOptionsMap))}`,
-    );
+    throw new Error('Formato vazio');
   }
-  const { ghlType } = mapFormato(formatoLabel);
+  // mapFormato lança para Stories e desconhecidos com mensagem segura (D-13)
+  const { ghlType, mediaCount } = mapFormato(formatoLabel);
 
   // --- 3. Data de publicação: epochMs string → ISO string (Pitfall 3) ---
+  // Validação de data ANTES de chamar o GHL (D-14)
   const epochMs = readCF(task, config.CF_DATA_PUBLICACAO);
   if (!epochMs) {
     throw new Error('Data de publicação vazia — task não deveria ter passado no filtro de elegibilidade');
   }
-  const scheduleDate = new Date(Number(epochMs)).toISOString();
+  const scheduleDateMs = Number(epochMs);
+  if (scheduleDateMs < Date.now()) {
+    throw new Error('Data no passado');
+  }
+  const scheduleDate = new Date(scheduleDateMs).toISOString();
 
   // --- 4. Download + extração do zip (com guardas de segurança em zip.js) ---
   let tmpDir;
@@ -195,33 +224,37 @@ export async function processTask(task, formatoOptionsMap) {
     const { files } = extracted;
 
     if (files.length === 0) {
-      throw new Error('Zip extraído não contém arquivos de mídia válidos');
+      throw new Error('Sem mídia após fallback');
     }
 
-    // --- 5. Upload de mídia para a media library do GHL ---
-    // Plano 02: mídia única (Reels/Feed estático = primeiro arquivo)
-    // Plano 03 estenderá para múltiplos arquivos (Carrossel)
-    const mediaUrls = [];
-    for (const file of files) {
+    // --- 5. Upload de mídia para a media library do GHL (SCH-04/D-10) ---
+    // Carrossel (mediaCount='multiple'): fazer upload de TODOS os arquivos em ordem numérica
+    // Reels/Feed estático (mediaCount='single'): usar apenas o primeiro arquivo
+    // downloadAndExtract já retorna os arquivos ordenados numericamente.
+    const filesToUpload = mediaCount === 'multiple' ? files : files.slice(0, 1);
+    const mediaItems = [];
+    for (const file of filesToUpload) {
       taskLog.info({ step: 'uploadMedia', fileName: file.name }, 'Fazendo upload de mídia para o GHL');
       const mime = mimeFromFilename(file.name);
       const { url } = await ghl.uploadMedia(file.buffer, file.name, mime);
-      mediaUrls.push({ url, type: mime });
+      mediaItems.push({ url, type: mime });
     }
 
     // --- 6. Criar post agendado no GHL (SCH-04) ---
     // CRÍTICO: payload DEVE incluir userId (422 sem ele — Finding 1 do Wave 0)
+    // type: 'post' | 'reel' — NUNCA 'carousel' (Pitfall 1/A1)
+    // media[]: todos os arquivos para Carrossel, 1 para Reels/Feed (D-10)
     const payload = {
       accountIds:   [config.GHL_ACCOUNT_ID],
       userId:       config.GHL_USER_ID,
       summary:      legenda,
       type:         ghlType,
       scheduleDate: scheduleDate,
-      media:        mediaUrls.slice(0, 1), // mídia única neste plano; Plano 03 envia todas
+      media:        mediaItems,
       status:       'scheduled',
     };
 
-    taskLog.info({ step: 'createPost', ghlType, mediaCount: mediaUrls.length }, 'Criando post agendado no GHL');
+    taskLog.info({ step: 'createPost', ghlType, mediaCount: mediaItems.length }, 'Criando post agendado no GHL');
     const res = await ghl.createPost(payload);
 
     // Extrair post id (Pitfall 7 confirmado empiricamente — Wave 0 Finding 2):
@@ -322,12 +355,30 @@ export async function runSchedulerBatch() {
       await processTask(task, formatoOptionsMap);
     } catch (err) {
       const taskLog = withContext({ module: 'scheduler', taskId: task.id });
-      const mensagem = err?.message
-        ? String(err.message).slice(0, 200)
-        : 'Erro desconhecido';
-      taskLog.error({ step: 'processTask.error', err: mensagem }, 'Falha ao processar task — continuando batch');
-      // Write-back de erro básico: não muda status, só loga
-      // (write-back completo de erro para CF_ERRO_PUBLICACAO é competência do Plano 03)
+
+      // Normalizar mensagem: AppError.message já normalizado (sem body bruto);
+      // qualquer outro erro: usar .message ou fallback, truncar a MAX_ERRO_MSG_LEN chars.
+      // Defensivamente: nunca incluir http (URL MinIO) nem prefixos de token (D-15/T-02-03).
+      const rawMsg = err instanceof AppError
+        ? err.message
+        : String(err?.message ?? 'Erro desconhecido');
+      const mensagem = rawMsg.slice(0, MAX_ERRO_MSG_LEN);
+
+      // Logar em nível warn SEM a URL do MinIO (T-02-03) — apenas taskId (já no contexto) + mensagem
+      taskLog.warn({ step: 'processTask.error', errMsg: mensagem }, 'Falha ao processar task — continuando batch');
+
+      // Write-back de falha (SCH-07/D-14/D-15):
+      //   - setCustomField(CF_ERRO_PUBLICACAO) com mensagem curta e segura
+      //   - NÃO chamar updateTask — status permanece STATUS_A_AGENDAR para retry
+      try {
+        await clickup.setCustomField(task.id, config.CF_ERRO_PUBLICACAO, mensagem);
+      } catch (writebackErr) {
+        // Write-back falhou (ex: ClickUp fora do ar) — só logar, não propagar
+        taskLog.warn(
+          { step: 'processTask.writeback.error', writebackErrMsg: writebackErr?.message },
+          'Falha ao gravar Erro de publicação no ClickUp — continuando batch',
+        );
+      }
     }
   }
 
