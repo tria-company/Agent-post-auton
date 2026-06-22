@@ -50,4 +50,27 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 
 ## Traceability
 
-<!-- Preenchido pelo roadmap -->
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| CFG-01 | Phase 1 | Pending |
+| CFG-02 | Phase 1 | Pending |
+| CFG-03 | Phase 1 | Pending |
+| CFG-04 | Phase 1 | Pending |
+| SCH-01 | Phase 2 | Pending |
+| SCH-02 | Phase 2 | Pending |
+| SCH-03 | Phase 2 | Pending |
+| SCH-04 | Phase 2 | Pending |
+| SCH-05 | Phase 2 | Pending |
+| SCH-06 | Phase 2 | Pending |
+| SCH-07 | Phase 2 | Pending |
+| SYNC-01 | Phase 3 | Pending |
+| SYNC-02 | Phase 3 | Pending |
+| SYNC-03 | Phase 3 | Pending |
+| SYNC-04 | Phase 3 | Pending |
+| SYNC-05 | Phase 3 | Pending |
+| SYNC-06 | Phase 3 | Pending |
+| OPS-01 | Phase 4 | Pending |
+| OPS-02 | Phase 4 | Pending |
+| OPS-03 | Phase 4 | Pending |
+
+**Cobertura:** 19/19 requirements v1 mapeados — sem órfãos, sem duplicatas.
