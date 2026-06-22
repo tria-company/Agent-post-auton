@@ -14,7 +14,7 @@ Um serviço Node.js que sincroniza posts de Instagram entre o ClickUp e o GoHigh
 - **Security**: tokens ClickUp (`pk_…`) e GHL (`pit-…`) e locationId ficam em `.env` (gitignored). **As keys foram expostas em chat — rotacionar antes de produção.**
 - **Hospedagem**: o webhook do GHL exige endpoint público (HTTPS). Definir host (VPS, Render, Railway, túnel) — a resolver.
 - **Sync GHL→ClickUp**: via **webhook do GHL** (tempo real), não polling (decisão do usuário).
-- **Gatilho ClickUp→GHL**: status `a agendar` + `Data de publicação` preenchida.
+- **Gatilho ClickUp→GHL**: o humano move a task para `agendado` + `Data de publicação` preenchida → o scheduler detecta e agenda no GHL. Em sucesso: status permanece `agendado`, GHL Post ID gravado em campo custom, comentário `✅ Agendado no GHL…` adicionado. Em falha: task volta para `a agendar`, erro gravado em `Erro de publicação`, comentário `❌ Falha ao agendar…` adicionado. Mover para `publicado` quando o GHL publica é Phase 3 (webhook GHL→ClickUp).
 - **Idempotência**: cada task guarda o id do post GHL para evitar duplicidade.
 - **API limits**: respeitar rate limits do ClickUp (100 req/min por token) e do GHL.
 
