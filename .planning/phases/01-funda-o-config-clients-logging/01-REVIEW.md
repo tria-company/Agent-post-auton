@@ -18,7 +18,7 @@ findings:
   warning: 5
   info: 3
   total: 9
-status: issues_found
+status: partially_fixed
 ---
 
 # Phase 01: Code Review Report
@@ -40,7 +40,7 @@ Secondary issues: an unguarded `list.name` dereference in `boot()`, a 429 retry 
 
 ## Critical Issues
 
-### CR-01: `pRetry.AbortError` is undefined in p-retry v8 — both clients throw TypeError on every 4xx
+### CR-01: `pRetry.AbortError` is undefined in p-retry v8 — both clients throw TypeError on every 4xx [FIXED: commit 6d5aa73]
 
 **File:** `src/clients/clickup.js:79` and `:93`; `src/clients/ghl.js:72` and `:85`
 **Issue:**
@@ -82,7 +82,7 @@ Add a unit test that drives a faked 401/404 `Response` through `clickup`/`ghl` `
 
 ## Warnings
 
-### WR-01: `boot()` dereferences `list.name` with no null/shape guard
+### WR-01: `boot()` dereferences `list.name` with no null/shape guard [FIXED: commit 071fe2b]
 
 **File:** `src/index.js:34-35`
 **Issue:** `getList` returns `res.json()` on 2xx but returns `null` on a 204 (clickup.js:83). `boot()` immediately does `list.name`:
@@ -101,7 +101,7 @@ If the API ever returns 204 (or an unexpected shape), this throws `TypeError: Ca
 Additionally for ClickUp, the manual `await` happens *inside* `limiter.schedule(...)`, so the Bottleneck concurrency slot (maxConcurrent: 5) is held for the entire `waitMs`, throttling unrelated in-flight requests during a rate-limit backoff.
 **Fix:** Either don't manually sleep and instead let p-retry handle the delay (returning the desired wait via its API), or keep the manual sleep but minimize p-retry's added backoff for the 429 case so the two don't compound. Avoid sleeping while holding a Bottleneck slot.
 
-### WR-03: ClickUp `X-RateLimit-Reset` treated as delta-seconds, but it is an epoch timestamp
+### WR-03: ClickUp `X-RateLimit-Reset` treated as delta-seconds, but it is an epoch timestamp [FIXED: commit 918aba0]
 
 **File:** `src/clients/clickup.js:59-62`
 **Issue:**
