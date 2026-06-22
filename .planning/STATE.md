@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Phase 03-01 checkpoint:human-verify — OQ1 smoke executado; aguardando shape real GHL /posts/:id e status publicado ClickUp (OQ4)"
-last_updated: "2026-06-22T22:44:13Z"
-last_activity: "2026-06-22 -- Phase 03-01 auto tasks complete (3/3 auto tasks, paused at checkpoint)"
+stopped_at: "Phase 03-02 — ready to start (03-01 complete)"
+last_updated: "2026-06-22T23:30:00Z"
+last_activity: "2026-06-22 -- Phase 03-01 COMPLETE: OQ1/OQ4 resolved, config Phase 3 + ghl.getPost + 3 RED scaffolds committed"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 9
-  completed_plans: 5
-  percent: 50
+  completed_plans: 6
+  percent: 56
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 ## Current Position
 
 Phase: 03 (webhooks-bidirecionais-clickup-ghl) — EXECUTING
-Plan: 1 of 4 (PAUSED AT CHECKPOINT — awaiting OQ1/OQ4 empirical data)
-Status: Executing Phase 03 — checkpoint:human-verify
-Last activity: 2026-06-22 -- Phase 03-01 auto tasks complete; smoke script ready for human run
+Plan: 2 of 4 (03-01 COMPLETE — starting 03-02)
+Status: Executing Phase 03 — Plan 01 complete, Plan 02 next
+Last activity: 2026-06-22 -- Phase 03-01 COMPLETE: config Phase 3, ghl.getPost, smoke OQ1/OQ4 resolved, 3 RED scaffolds
 
-Progress: [██████░░░░] 65%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [██████░░░░] 65%
 | Phase 02-agendamento-clickup-ghl P01 | 120min | 3 tasks | 7 files |
 | Phase 02-agendamento-clickup-ghl P02 | 90min | 3 tasks | 9 files |
 | Phase 02-agendamento-clickup-ghl P03 | 15min | 2 tasks | 2 files |
+| Phase 03-webhooks-bidirecionais-clickup-ghl P01 | ~60min+human | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,12 @@ Recent decisions affecting current work:
 - [Phase 03-01]: D-08 revisado pós-pesquisa: ingress via Caddy direto (não smee.io); HMAC sempre ativo; SMEE_CHANNEL_ID/SKIP_SIGNATURE_VERIFY excluídos do config
 - [Phase 03-01]: Config Phase 3: 4 campos adicionados (WEBHOOK_PORT/CLICKUP_WEBHOOK_SECRET/POLL_INTERVAL_MS/STATUS_PUBLICADO)
 - [Phase 03-01]: ghl.getPost(postId) implementado — GET /social-media-posting/:locationId/posts/:id
+- [Phase 03-01 OQ1]: GHL GET /posts/:id response wrapper is results.post (same as createPost — Pitfall 7 generalization)
+- [Phase 03-01 OQ1]: Confirmed status field: results.post.status (string, observed 'scheduled'); published/failed values not yet observed
+- [Phase 03-01 OQ1]: Primary published signal: results.post.publishedAt (null → ISO timestamp) — prefer over status string alone
+- [Phase 03-01 OQ1]: Deleted posts: results.post.deleted (bool) + deletedAt — poller must skip deleted posts
+- [Phase 03-01 OQ1]: instagramPostDetails was {} on scheduled post — IG media id/permalink/failureReason unconfirmed until post published
+- [Phase 03-01 OQ4]: ClickUp 'publicado' confirmed as published status — STATUS_PUBLICADO default correct, no override needed
 
 ### Pending Todos
 
@@ -114,6 +121,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T22:44:13Z
-Stopped at: Phase 03-01 checkpoint — OQ1 smoke ready, OQ4 pending (ClickUp status name)
-Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-01-PLAN.md (continue from checkpoint)
+Last session: 2026-06-22T23:30:00Z
+Stopped at: Phase 03-01 COMPLETE — ready to start 03-02 (server + HMAC + DedupeStore + clickupHandler)
+Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-02-PLAN.md

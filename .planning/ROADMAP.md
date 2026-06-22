@@ -79,7 +79,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 1**
 
-  - [ ] 03-01-PLAN.md — Wave 0 (fundação + smoke empírico): config Phase 3 + ghl.getPost + smoke OQ1 (shape do GET /posts/:id) + OQ4 (status publicado) + scaffolds de teste RED (SYNC-01)
+  - [x] 03-01-PLAN.md — Wave 0 (fundação + smoke empírico): config Phase 3 + ghl.getPost + smoke OQ1 (shape do GET /posts/:id) + OQ4 (status publicado) + scaffolds de teste RED (SYNC-01) — COMPLETE (2026-06-22): OQ1 resolved (results.post.status + publishedAt confirmed); OQ4 resolved ('publicado' default correct); 81/84 tests passing (3 RED scaffolds expected)
 
 **Wave 2** *(paralelo — sem overlap de arquivos; depende do Plano 01)*
 
@@ -113,5 +113,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
 | 2. Agendamento ClickUp → GHL | 3/3 | Complete | 2026-06-22 |
-| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 0/4 | Planned | - |
+| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 1/4 | Executing | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |
