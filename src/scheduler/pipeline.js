@@ -231,11 +231,24 @@ export async function processTask(task, formatoOptionsMap) {
       throw new Error('Sem mídia após fallback');
     }
 
-    // --- 5. Upload de mídia para a media library do GHL (SCH-04/D-10) ---
+    // --- 5. Separar capa (cover/thumbnail) dos arquivos de mídia ---
+    // A capa é identificada pelo basename (case-insensitive) correspondendo a
+    // capa.<ext> ou cover.<ext> com extensão de imagem.
+    // Ela se aplica APENAS a Reels — em outros formatos é simplesmente descartada.
+    // A capa NUNCA deve aparecer como slide em media[] (excluída de filesToUpload).
+    const COVER_REGEX = /^(capa|cover)\.(jpe?g|png|webp)$/i;
+    const coverFile = files.find((f) => COVER_REGEX.test(f.name)) ?? null;
+    const mediaFiles = files.filter((f) => !COVER_REGEX.test(f.name));
+
+    if (mediaFiles.length === 0) {
+      throw new Error('Sem mídia após fallback');
+    }
+
+    // --- 6. Upload de mídia para a media library do GHL (SCH-04/D-10) ---
     // Carrossel (mediaCount='multiple'): fazer upload de TODOS os arquivos em ordem numérica
     // Reels/Feed estático (mediaCount='single'): usar apenas o primeiro arquivo
     // downloadAndExtract já retorna os arquivos ordenados numericamente.
-    const filesToUpload = mediaCount === 'multiple' ? files : files.slice(0, 1);
+    const filesToUpload = mediaCount === 'multiple' ? mediaFiles : mediaFiles.slice(0, 1);
     const mediaItems = [];
     for (const file of filesToUpload) {
       taskLog.info({ step: 'uploadMedia', fileName: file.name }, 'Fazendo upload de mídia para o GHL');
@@ -244,7 +257,26 @@ export async function processTask(task, formatoOptionsMap) {
       mediaItems.push({ url, type: mime });
     }
 
-    // --- 6. Criar post agendado no GHL (SCH-04) ---
+    // --- 6b. Reel cover/thumbnail ---
+    // Aplica-se somente quando ghlType === 'reel' E uma capa foi encontrada.
+    //
+    // CAVEAT EMPÍRICO: o campo correto para o thumbnail do Reel no GHL ainda NÃO foi
+    // confirmado em produção (apenas type='post' para Carrossel foi validado). O campo
+    // `media[].thumbnail` é nossa melhor estimativa com base na documentação disponível.
+    // Se o GHL rejeitar (ex: 422) ou ignorar, inspecionar o response completo e ajustar
+    // este campo. Outros candidatos: campo top-level `cover`, `instagramPostDetails.thumbnail`.
+    // PONTO ÚNICO DE MUDANÇA — ajustar apenas aqui se o campo for diferente.
+    if (ghlType === 'reel' && coverFile) {
+      taskLog.info({ step: 'reelCover', fileName: coverFile.name }, 'Fazendo upload da capa do Reel');
+      const coverMime = mimeFromFilename(coverFile.name);
+      const { url: coverUrl } = await ghl.uploadMedia(coverFile.buffer, coverFile.name, coverMime);
+      // Anexar thumbnail ao item de vídeo (mediaItems[0] = o único vídeo do Reel)
+      // CAMPO: media[0].thumbnail — estimativa; confirmar na primeira run real.
+      mediaItems[0].thumbnail = coverUrl;
+      taskLog.info({ step: 'reelCover' }, 'Capa do Reel anexada ao payload (media[0].thumbnail)');
+    }
+
+    // --- 7. Criar post agendado no GHL (SCH-04) ---
     // CRÍTICO: payload DEVE incluir userId (422 sem ele — Finding 1 do Wave 0)
     // type: 'post' | 'reel' — NUNCA 'carousel' (Pitfall 1/A1)
     // media[]: todos os arquivos para Carrossel, 1 para Reels/Feed (D-10)
@@ -271,7 +303,7 @@ export async function processTask(task, formatoOptionsMap) {
       );
     }
 
-    // --- 7. Write-back de sucesso (SCH-05) ---
+    // --- 8. Write-back de sucesso (SCH-05) ---
     // Ordem: createPost → setCustomField(GHL Post ID) → addComment
     // Status NÃO é alterado — a task já está em STATUS_AGENDADO (humano a moveu para acionar).
     // O marcador de idempotência (CF_GHL_POST_ID) impede re-agendamento em futuras passadas.
