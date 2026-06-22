@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Phase 03-02 — ready to start (03-01 complete)"
-last_updated: "2026-06-22T23:30:00Z"
-last_activity: "2026-06-22 -- Phase 03-01 COMPLETE: OQ1/OQ4 resolved, config Phase 3 + ghl.getPost + 3 RED scaffolds committed"
+stopped_at: "Phase 03-03 — ready to start (03-02 complete)"
+last_updated: "2026-06-22T23:07:23Z"
+last_activity: "2026-06-22 -- Phase 03-02 COMPLETE: verifySignature + DedupeStore + handleClickUp + node:http server; 3 RED→GREEN; 92/92 passing"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 9
-  completed_plans: 6
-  percent: 56
+  completed_plans: 7
+  percent: 67
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 ## Current Position
 
 Phase: 03 (webhooks-bidirecionais-clickup-ghl) — EXECUTING
-Plan: 2 of 4 (03-01 COMPLETE — starting 03-02)
-Status: Executing Phase 03 — Plan 01 complete, Plan 02 next
-Last activity: 2026-06-22 -- Phase 03-01 COMPLETE: config Phase 3, ghl.getPost, smoke OQ1/OQ4 resolved, 3 RED scaffolds
+Plan: 3 of 4 (03-02 COMPLETE — starting 03-03)
+Status: Executing Phase 03 — Plan 02 complete, Plan 03 next (GHL status poller)
+Last activity: 2026-06-22 -- Phase 03-02 COMPLETE: verifySignature + DedupeStore + handleClickUp + node:http server; 3 RED→GREEN; 92/92 passing
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [███████░░░] 67%
 | Phase 02-agendamento-clickup-ghl P02 | 90min | 3 tasks | 9 files |
 | Phase 02-agendamento-clickup-ghl P03 | 15min | 2 tasks | 2 files |
 | Phase 03-webhooks-bidirecionais-clickup-ghl P01 | ~60min+human | 3 tasks | 6 files |
+| Phase 03-webhooks-bidirecionais-clickup-ghl P02 | ~12min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,10 @@ Recent decisions affecting current work:
 - [Phase 03-01 OQ1]: Deleted posts: results.post.deleted (bool) + deletedAt — poller must skip deleted posts
 - [Phase 03-01 OQ1]: instagramPostDetails was {} on scheduled post — IG media id/permalink/failureReason unconfirmed until post published
 - [Phase 03-01 OQ4]: ClickUp 'publicado' confirmed as published status — STATUS_PUBLICADO default correct, no override needed
+- [Phase 03-02]: HMAC testability pattern: handler skips HMAC when neither webhookSecret nor skipSignatureVerify===false in deps (test mode); production always passes webhookSecret → HMAC always active
+- [Phase 03-02]: loadFormatoOptionsMap() called per-webhook event (no cache); mirrors runSchedulerBatch bootstrap; acceptable within rate limits
+- [Phase 03-02]: DedupeStore TTL 10min; key webhook_id:history_item_id (TRIG-04)
+- [Phase 03-02]: POLLER_INTEGRATION_POINT comment in server/index.js for Plan 03-04 to add ghlStatusPoller setInterval
 
 ### Pending Todos
 
@@ -121,6 +126,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T23:30:00Z
-Stopped at: Phase 03-01 COMPLETE — ready to start 03-02 (server + HMAC + DedupeStore + clickupHandler)
-Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-02-PLAN.md
+Last session: 2026-06-22T23:07:23Z
+Stopped at: Phase 03-02 COMPLETE — ready to start 03-03 (GHL status poller)
+Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-03-PLAN.md

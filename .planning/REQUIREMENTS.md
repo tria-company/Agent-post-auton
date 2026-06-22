@@ -32,11 +32,11 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 
 ### Gatilho ClickUp → GHL por Webhook (TRIG)
 
-- [ ] **TRIG-01**: Endpoint HTTP público recebe webhook do ClickUp para mudança de status de task na lista de agendamentos (901327135553)
-- [ ] **TRIG-02**: Validar autenticidade do webhook do ClickUp (assinatura HMAC/segredo) antes de processar
-- [ ] **TRIG-03**: Ao receber task que mudou para `agendado`, disparar o agendamento em tempo real reusando o pipeline existente (`processTask`)
-- [ ] **TRIG-04**: Idempotência — reentrega/duplicação do webhook não reagenda (reusa a guarda do GHL Post ID)
-- [ ] **TRIG-05**: O batch `npm start` (runSchedulerBatch) permanece disponível como fallback manual de varredura/reprocessamento
+- [x] **TRIG-01**: Endpoint HTTP público recebe webhook do ClickUp para mudança de status de task na lista de agendamentos (901327135553)
+- [x] **TRIG-02**: Validar autenticidade do webhook do ClickUp (assinatura HMAC/segredo) antes de processar
+- [x] **TRIG-03**: Ao receber task que mudou para `agendado`, disparar o agendamento em tempo real reusando o pipeline existente (`processTask`)
+- [x] **TRIG-04**: Idempotência — reentrega/duplicação do webhook não reagenda (reusa a guarda do GHL Post ID)
+- [x] **TRIG-05**: O batch `npm start` (runSchedulerBatch) permanece disponível como fallback manual de varredura/reprocessamento
 
 ### Operação & Robustez (OPS)
 
