@@ -29,7 +29,9 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Uma chamada de teste ao ClickUp com o token configurado retorna dados da lista "Agendamentos & Publicações" e respeita o rate limit (100 req/min)
   3. Uma chamada de teste ao GHL (`GET /social-media-posting/{locationId}/accounts`) com `Authorization: Bearer` + header `Version` retorna 200 e lista a conta Instagram `auton.app`
   4. Cada ação executada produz um log estruturado contendo id da task e (quando aplicável) id do post GHL
-**Plans**: TBD
+**Plans**: 2 plans
+  - [ ] 01-01-PLAN.md — Walking Skeleton: scaffold ESM + config fail-fast + clients ClickUp/GHL autenticados + logging + smoke test ponta-a-ponta (CFG-01..04)
+  - [ ] 01-02-PLAN.md — Hardening: testes de fail-fast/redaction/erro normalizado, smoke estendido (formato de custom field), README de setup + checkpoint de higiene de segredos (CFG-01, CFG-02, CFG-04)
 
 ### Phase 2: Agendamento ClickUp → GHL
 **Goal**: Entregar o fluxo de valor principal de ponta a ponta — uma task marcada `a agendar` com `Data de publicação` preenchida vira um post agendado no GHL Social Planner para o Instagram, e a task retorna como `agendado` com o id do post salvo.
@@ -75,7 +77,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fundação (Config + Clients + Logging) | 0/TBD | Not started | - |
+| 1. Fundação (Config + Clients + Logging) | 0/2 | Not started | - |
 | 2. Agendamento ClickUp → GHL | 0/TBD | Not started | - |
 | 3. Sincronização GHL → ClickUp (Webhook) | 0/TBD | Not started | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |
