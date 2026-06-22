@@ -15,6 +15,7 @@ import { config } from './config/index.js';
 import { withContext } from './lib/logger.js';
 import { clickup } from './clients/clickup.js';
 import { ghl } from './clients/ghl.js';
+import { runSchedulerBatch } from './scheduler/pipeline.js';
 
 /**
  * Executa o boot da aplicação: autentica nas duas APIs e valida a fundação.
@@ -99,9 +100,17 @@ const __filename = fileURLToPath(import.meta.url);
 const isEntrypoint = process.argv[1] === __filename;
 
 if (isEntrypoint || process.env.DIRECT_RUN === '1') {
-  const log = withContext({ action: 'boot' });
-  boot().catch((err) => {
-    log.fatal({ err }, 'Falha fatal no boot — encerrando');
+  const log = withContext({ action: 'main' });
+  (async () => {
+    await boot();
+    // Executar o scheduler batch quando não estiver em modo smoke-only
+    if (!process.env.SMOKE_ONLY) {
+      await runSchedulerBatch();
+    } else {
+      log.info({ step: 'smoke_only' }, 'SMOKE_ONLY=1 — pulando runSchedulerBatch');
+    }
+  })().catch((err) => {
+    log.fatal({ err }, 'Falha fatal — encerrando');
     process.exit(1);
   });
 }
