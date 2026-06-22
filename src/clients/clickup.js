@@ -10,7 +10,7 @@
  * - Segurança: headers de auth NUNCA logados (T-01-02)
  */
 import Bottleneck from 'bottleneck';
-import pRetry from 'p-retry';
+import pRetry, { AbortError } from 'p-retry';
 import { config } from '../config/index.js';
 import { withContext } from '../lib/logger.js';
 import { AppError } from '../lib/errors.js';
@@ -76,7 +76,7 @@ async function request(method, path, body) {
         if (!res.ok) {
           const appErr = await AppError.fromClickUp(res);
           log.warn({ status: appErr.status, code: appErr.code, attempt: attemptNumber }, 'ClickUp erro não-retentável');
-          throw new pRetry.AbortError(appErr);
+          throw new AbortError(appErr);
         }
 
         // 204 No Content
@@ -90,7 +90,7 @@ async function request(method, path, body) {
         factor: 2,
         onFailedAttempt(error) {
           // Não logar AbortError (já logado acima com dados estruturados)
-          if (error instanceof pRetry.AbortError) return;
+          if (error instanceof AbortError) return;
           log.warn(
             { attempt: error.attemptNumber, retriesLeft: error.retriesLeft },
             `ClickUp request falhou — retentando`,

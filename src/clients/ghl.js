@@ -8,7 +8,7 @@
  * - Fetch: nativo do Node 24 — sem node-fetch/axios/undici
  * - Segurança: headers de auth NUNCA logados (T-01-02)
  */
-import pRetry from 'p-retry';
+import pRetry, { AbortError } from 'p-retry';
 import { config } from '../config/index.js';
 import { withContext } from '../lib/logger.js';
 import { AppError } from '../lib/errors.js';
@@ -69,7 +69,7 @@ async function request(method, path, body) {
       if (!res.ok) {
         const appErr = await AppError.fromGHL(res);
         log.warn({ status: appErr.status, code: appErr.code, attempt: attemptNumber }, 'GHL erro não-retentável');
-        throw new pRetry.AbortError(appErr);
+        throw new AbortError(appErr);
       }
 
       // 204 No Content
@@ -82,7 +82,7 @@ async function request(method, path, body) {
       minTimeout: 1_000,
       factor: 2,
       onFailedAttempt(error) {
-        if (error instanceof pRetry.AbortError) return;
+        if (error instanceof AbortError) return;
         log.warn(
           { attempt: error.attemptNumber, retriesLeft: error.retriesLeft },
           'GHL request falhou — retentando',
