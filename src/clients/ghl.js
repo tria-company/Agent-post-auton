@@ -94,8 +94,8 @@ async function request(method, path, body) {
 
 /**
  * Client GHL exportado.
- * Phase 1: só listAccounts para o smoke test.
- * Phase 2 adicionará: createPost.
+ * Phase 1: listAccounts para o smoke test.
+ * Phase 2: uploadMedia (multipart), createPost (com payload real + userId).
  */
 export const ghl = {
   /**
@@ -108,9 +108,89 @@ export const ghl = {
     request('GET', `/social-media-posting/${config.GHL_LOCATION_ID}/accounts`),
 
   /**
+   * Faz upload de um arquivo para a media library do GHL.
+   * POST /medias/upload-file (multipart/form-data)
+   *
+   * NÃO usa request() pois o Content-Type deve ser definido pelo FormData (boundary automático).
+   * Usar Content-Type manual quebraria o multipart — Pitfall 4 do RESEARCH.md.
+   * Ainda envolve em pRetry para herdar retry/backoff.
+   *
+   * Segurança: não loga Authorization (T-01-02); reusa authHeaders exceto Content-Type.
+   *
+   * @param {Buffer} fileBuffer
+   * @param {string} fileName
+   * @param {string} mimeType
+   * @returns {Promise<{url: string, fileId: string}>}
+   */
+  uploadMedia: (fileBuffer, fileName, mimeType) =>
+    pRetry(
+      async (attemptNumber) => {
+        const form = new FormData();
+        form.append('file', new Blob([fileBuffer], { type: mimeType }), fileName);
+        form.append('name', fileName);
+        form.append('altType', 'location');
+        form.append('altId', config.GHL_LOCATION_ID);
+        // NÃO setar Content-Type — FormData define com boundary automaticamente (Pitfall 4)
+        const res = await fetch(`${BASE_URL}/medias/upload-file`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.GHL_TOKEN}`,
+            Version: config.GHL_API_VERSION,
+            // sem Content-Type intencional
+          },
+          body: form,
+        });
+
+        if (res.status === 429) {
+          const retryAfter = res.headers.get('Retry-After');
+          const waitMs = retryAfter ? Number(retryAfter) * 1000 : 5_000;
+          log.warn({ status: 429, waitMs, attempt: attemptNumber }, 'GHL rate limit (upload) — aguardando');
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+          throw new Error(`Rate limited (429) — tentativa ${attemptNumber}`);
+        }
+
+        if (res.status >= 500) throw new Error(`GHL server error ${res.status}`);
+
+        if (!res.ok) {
+          const appErr = await AppError.fromGHL(res);
+          log.warn({ status: appErr.status, code: appErr.code, attempt: attemptNumber }, 'GHL upload erro não-retentável');
+          throw new AbortError(appErr);
+        }
+
+        const data = await res.json();
+        return { url: data.url, fileId: data.fileId };
+      },
+      {
+        retries: 3,
+        minTimeout: 1_000,
+        factor: 2,
+        onFailedAttempt(error) {
+          if (error instanceof AbortError) return;
+          log.warn(
+            { attempt: error.attemptNumber, retriesLeft: error.retriesLeft },
+            'GHL upload falhou — retentando',
+          );
+        },
+      },
+    ),
+
+  /**
    * Cria um post agendado no Social Planner do GHL.
    * POST /social-media-posting/{locationId}/posts
-   * (Implementado na Phase 2)
+   *
+   * Payload esperado (campos confirmados empiricamente — smoke Wave 0):
+   *   {
+   *     accountIds:   string[]   // ex: [config.GHL_ACCOUNT_ID]
+   *     userId:       string     // OBRIGATÓRIO — 422 sem ele; ex: config.GHL_USER_ID
+   *     summary:      string     // legenda do post
+   *     type:         'post' | 'reel'  // 'post' para Feed/Carrossel, 'reel' para Reels
+   *     scheduleDate: string     // ISO 8601 (ex: new Date(epochMs).toISOString())
+   *     media:        Array<{url: string, type?: string}>  // url da media library do GHL (A2 confirmado)
+   *     status:       'scheduled'
+   *   }
+   *
+   * Resposta (Pitfall 7 — confirmado empiricamente):
+   *   post id em response.results.post._id (NÃO response.post._id)
    *
    * @param {object} payload
    * @returns {Promise<object>}
