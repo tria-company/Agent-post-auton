@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: completed
-stopped_at: Phase 3 context gathered
-last_updated: "2026-06-22T21:42:15.851Z"
-last_activity: 2026-06-22 -- Plan 02-03 complete (carousel + validation + error write-back; 67/67 tests GREEN)
+status: executing
+stopped_at: "Phase 03-01 checkpoint:human-verify — OQ1 smoke executado; aguardando shape real GHL /posts/:id e status publicado ClickUp (OQ4)"
+last_updated: "2026-06-22T22:44:13Z"
+last_activity: "2026-06-22 -- Phase 03-01 auto tasks complete (3/3 auto tasks, paused at checkpoint)"
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 5
+  total_plans: 9
   completed_plans: 5
   percent: 50
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-22)
 
 **Core value:** Um post marcado "a agendar" no ClickUp aparece agendado no GHL para o Instagram, e quando publica o ClickUp reflete sozinho — sem cópia manual entre as ferramentas.
-**Current focus:** Phase 02 — agendamento-clickup-ghl
+**Current focus:** Phase 03 — webhooks-bidirecionais-clickup-ghl
 
 ## Current Position
 
-Phase: 02 (agendamento-clickup-ghl) — COMPLETE; Phase 03 (Webhook) is next
-Plan: Phase 2 complete (3/3 plans done); ready to plan Phase 03
-Status: Phase 2 complete — all 5 plans (3 Phase 1 + 2 Phase 2 plans... actually 2+3=5) complete
-Last activity: 2026-06-22 -- Plan 02-03 complete (carousel + validation + error write-back; 67/67 tests GREEN)
+Phase: 03 (webhooks-bidirecionais-clickup-ghl) — EXECUTING
+Plan: 1 of 4 (PAUSED AT CHECKPOINT — awaiting OQ1/OQ4 empirical data)
+Status: Executing Phase 03 — checkpoint:human-verify
+Last activity: 2026-06-22 -- Phase 03-01 auto tasks complete; smoke script ready for human run
 
 Progress: [██████░░░░] 65%
 
@@ -84,6 +84,9 @@ Recent decisions affecting current work:
 - [Phase 02-03]: Error write-back: CF_ERRO_PUBLICACAO with short safe message (AppError.message, <= 200 chars, no URL/token); NO status change on failure
 - [Phase 02-03]: Stories/empty/unknown Formato rejected before any GHL call; date-past validation added (D-13/D-14)
 - [Phase 02-03]: Batch isolation confirmed: per-task try/catch; failure → write-back + continue (D-18/SCH-07)
+- [Phase 03-01]: D-08 revisado pós-pesquisa: ingress via Caddy direto (não smee.io); HMAC sempre ativo; SMEE_CHANNEL_ID/SKIP_SIGNATURE_VERIFY excluídos do config
+- [Phase 03-01]: Config Phase 3: 4 campos adicionados (WEBHOOK_PORT/CLICKUP_WEBHOOK_SECRET/POLL_INTERVAL_MS/STATUS_PUBLICADO)
+- [Phase 03-01]: ghl.getPost(postId) implementado — GET /social-media-posting/:locationId/posts/:id
 
 ### Pending Todos
 
@@ -111,6 +114,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T21:42:15.845Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-CONTEXT.md
+Last session: 2026-06-22T22:44:13Z
+Stopped at: Phase 03-01 checkpoint — OQ1 smoke ready, OQ4 pending (ClickUp status name)
+Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-01-PLAN.md (continue from checkpoint)
