@@ -8,12 +8,11 @@ updated: 2026-06-22
 
 ## Current Test
 
-number: 1
-name: Validação dos UUIDs de custom field do ClickUp contra a lista Auton ao vivo
+number: 2
+name: Execução end-to-end ao vivo (npm start)
 expected: |
-  Cada CU_FIELD_* no .env corresponde ao UUID do campo de mesmo nome na lista
-  "Agendamentos & Publicações" (901327135553, team Auton). Nenhum mismatch — caso
-  contrário o pipeline lê null silenciosamente ou grava no campo errado.
+  Uma task real `a agendar` vira `agendado` com GHL Post ID preenchido e post agendado
+  no Social Planner da auton.app (single + carrossel + caminhos de erro).
 awaiting: user response
 
 ## Tests
@@ -34,7 +33,7 @@ expected: |
     Erro de publicação = 1137de68-9a0a-467e-8848-1d0e59844d5e
     IG Media ID        = cde1cd79-ecdc-43f7-b29e-7d0f42c2eed1
     Link publicado     = e98e36fe-1d17-48b7-a797-9ae9b1623d0f
-result: [pending]
+result: passed — todos os 9 CU_FIELD_* do .env batem com os UUIDs reais da lista Auton 901327135553 (verificado 2026-06-22)
 
 ### 2. Execução end-to-end ao vivo (npm start)
 expected: |
@@ -51,9 +50,9 @@ result: [pending]
 ## Summary
 
 total: 2
-passed: 0
+passed: 1
 issues: 0
-pending: 2
+pending: 1
 skipped: 0
 blocked: 0
 
