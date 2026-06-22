@@ -44,6 +44,50 @@ export async function boot() {
     (Array.isArray(accountsResult) ? accountsResult : []);
   log.info({ step: 'ghl.listAccounts', count: accounts.length }, 'GHL autenticado');
 
+  // Passo 3: Ler custom fields da lista para confirmar shape [ASSUMED] A2 do RESEARCH
+  // Confirma: GET /list/{id}/field retorna type_config.options para dropdowns (Pitfall 2)
+  // Mapeia label→id das opções do campo "Formato" que a Phase 2 precisará para escrever.
+  // Não falha o boot se o campo não for encontrado — apenas loga warn (objetivo: descobrir/confirmar).
+  log.info({ step: 'clickup.getListFields', listId: config.CLICKUP_LIST_ID }, 'Lendo custom fields da lista...');
+  try {
+    const fieldsResult = await clickup.getListFields(config.CLICKUP_LIST_ID);
+    // Shape retornado: { fields: [...] }
+    const fields = fieldsResult?.fields ?? (Array.isArray(fieldsResult) ? fieldsResult : []);
+    log.info({ step: 'clickup.getListFields', fieldCount: fields.length }, 'Custom fields lidos');
+
+    // Localizar campo "Formato" (dropdown) para confirmar shape type_config.options
+    const formatoField = fields.find(
+      (f) => typeof f.name === 'string' && f.name.toLowerCase().includes('formato'),
+    );
+
+    if (formatoField) {
+      // Mapear label→id das opções (Reels/Carrossel/Stories/Feed)
+      const options = formatoField?.type_config?.options ?? [];
+      const labelToId = Object.fromEntries(
+        options.map((opt) => [opt.label ?? opt.name ?? opt.value, opt.id]),
+      );
+      log.info(
+        {
+          step: 'clickup.getListFields',
+          field: formatoField.name,
+          fieldId: formatoField.id,
+          fieldType: formatoField.type,
+          optionCount: options.length,
+          labelToId,
+        },
+        'Campo Formato mapeado — confirma shape type_config.options para Phase 2',
+      );
+    } else {
+      log.warn(
+        { step: 'clickup.getListFields', fieldNames: fields.map((f) => f.name) },
+        'Campo "Formato" não encontrado nos custom fields — shape A2 não confirmado',
+      );
+    }
+  } catch (err) {
+    // Não bloquear o boot — logar warn e continuar (objetivo é descoberta, não bloqueio)
+    log.warn({ step: 'clickup.getListFields', err: err?.message }, 'Falha ao ler custom fields — continuando boot');
+  }
+
   log.info({ step: 'done' }, 'Fundação OK — clients prontos');
 }
 
