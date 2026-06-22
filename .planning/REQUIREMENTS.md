@@ -30,6 +30,14 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 - [ ] **SYNC-05**: Ao falhar a publicação no GHL, preencher `Erro de publicação` na task
 - [ ] **SYNC-06**: Webhook idempotente — reentrega do mesmo evento não duplica atualização
 
+### Gatilho ClickUp → GHL por Webhook (TRIG)
+
+- [ ] **TRIG-01**: Endpoint HTTP público recebe webhook do ClickUp para mudança de status de task na lista de agendamentos (901327135553)
+- [ ] **TRIG-02**: Validar autenticidade do webhook do ClickUp (assinatura HMAC/segredo) antes de processar
+- [ ] **TRIG-03**: Ao receber task que mudou para `agendado`, disparar o agendamento em tempo real reusando o pipeline existente (`processTask`)
+- [ ] **TRIG-04**: Idempotência — reentrega/duplicação do webhook não reagenda (reusa a guarda do GHL Post ID)
+- [ ] **TRIG-05**: O batch `npm start` (runSchedulerBatch) permanece disponível como fallback manual de varredura/reprocessamento
+
 ### Operação & Robustez (OPS)
 
 - [ ] **OPS-01**: Processo de polling/agendador roda continuamente em intervalo configurável
@@ -69,8 +77,13 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 | SYNC-04 | Phase 3 | Pending |
 | SYNC-05 | Phase 3 | Pending |
 | SYNC-06 | Phase 3 | Pending |
+| TRIG-01 | Phase 3 | Pending |
+| TRIG-02 | Phase 3 | Pending |
+| TRIG-03 | Phase 3 | Pending |
+| TRIG-04 | Phase 3 | Pending |
+| TRIG-05 | Phase 3 | Pending |
 | OPS-01 | Phase 4 | Pending |
 | OPS-02 | Phase 4 | Pending |
 | OPS-03 | Phase 4 | Pending |
 
-**Cobertura:** 19/19 requirements v1 mapeados — sem órfãos, sem duplicatas.
+**Cobertura:** 24/24 requirements v1 mapeados — sem órfãos, sem duplicatas.

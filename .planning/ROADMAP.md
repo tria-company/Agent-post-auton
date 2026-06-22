@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Fundação (Config + Clients + Logging)** - `.env`, clients autenticados de ClickUp e GHL e logging estruturado prontos para uso (completed 2026-06-22)
 - [x] **Phase 2: Agendamento ClickUp → GHL** - Task `a agendar` vira post agendado no GHL e volta como `agendado` no ClickUp (completed 2026-06-22)
-- [ ] **Phase 3: Sincronização GHL → ClickUp (Webhook)** - Publicação/erro no GHL reflete automaticamente na task do ClickUp
+- [ ] **Phase 3: Webhooks Bidirecionais (ClickUp ⇄ GHL)** - Um servidor público (VPS) atende dois webhooks: ClickUp→GHL dispara o agendamento ao mover para `agendado`; GHL→ClickUp reflete publicação/erro na task. Batch `npm start` mantido como fallback
 - [ ] **Phase 4: Operação & Robustez** - Serviço roda continuamente, sobrevive a falhas de rede e é deployável via README
 
 ## Phase Details
@@ -61,19 +61,19 @@ Decimal phases appear between their surrounding integers in numeric order.
 
   - [x] 02-03-PLAN.md — Wave 2 (refinamento): carrossel multi-mídia ordenado + validação completa (Formato/Stories/data/conteúdo) + write-back de Erro de publicação + isolamento de falha (SCH-04, SCH-07) — COMPLETE (2026-06-22): 67/67 tests GREEN; carousel type='post'+media[N] in order; Stories/empty rejected; write-back CF_ERRO_PUBLICACAO safe+truncated; D-18 isolation proven
 
-### Phase 3: Sincronização GHL → ClickUp (Webhook)
+### Phase 3: Webhooks Bidirecionais (ClickUp ⇄ GHL)
 
-**Goal**: Fechar o laço inverso — quando o GHL publica ou falha um post, o webhook atualiza automaticamente a task correspondente no ClickUp em tempo real.
+**Goal**: Construir UM servidor HTTP público (hospedado no VPS próprio) que atende dois webhooks: (a) ClickUp→GHL — quando o humano move uma task para `agendado`, o agendamento dispara em tempo real (sem `npm start` manual); (b) GHL→ClickUp — quando o GHL publica ou falha um post, a task reflete `publicado`/erro automaticamente. O batch `npm start` permanece como fallback manual.
 **Mode:** mvp
 **Depends on**: Phase 2
-**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06
+**Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06, TRIG-01, TRIG-02, TRIG-03, TRIG-04, TRIG-05
 **Success Criteria** (what must be TRUE):
 
-  1. Um endpoint HTTP público recebe o webhook do GHL para eventos de post e só processa eventos cuja autenticidade (segredo/assinatura) foi validada
-  2. O evento recebido é mapeado de volta para a task ClickUp correta usando o id do post salvo na task
-  3. Ao publicar, a task move para `publicado` e os campos `IG Media ID` e `Link publicado` são preenchidos
-  4. Ao falhar a publicação no GHL, o campo `Erro de publicação` da task é preenchido
-  5. A reentrega do mesmo evento de webhook não duplica nem corrompe a atualização da task (idempotência)
+  1. Um único endpoint HTTP público recebe webhooks do ClickUp E do GHL, e só processa eventos cuja autenticidade (assinatura HMAC/segredo) foi validada
+  2. (Gatilho) Quando uma task da lista de agendamentos muda para `agendado`, o webhook do ClickUp dispara `processTask` em tempo real, reusando o pipeline da Phase 2 (upload+createPost+write-back)
+  3. (Sync) O evento do GHL é mapeado de volta para a task correta via id do post salvo; ao publicar, a task vai para `publicado` com `IG Media ID` e `Link publicado`; ao falhar, preenche `Erro de publicação`
+  4. Reentrega/duplicação de qualquer webhook não reagenda nem corrompe a task (idempotência — reusa a guarda do GHL Post ID e dedup de evento)
+  5. O batch `npm start` continua funcionando como fallback manual de varredura/reprocessamento
 
 **Plans**: TBD
 
