@@ -21,6 +21,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "adm-zip": "^0.5.17",
     "bottleneck": "^2.19.5",
     "dotenv": "^17.4.2",
     "p-retry": "^8.0.0",
