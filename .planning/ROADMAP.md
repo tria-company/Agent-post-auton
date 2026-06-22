@@ -69,9 +69,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Requirements**: SYNC-01, SYNC-02, SYNC-03, SYNC-04, SYNC-05, SYNC-06, TRIG-01, TRIG-02, TRIG-03, TRIG-04, TRIG-05
 **Success Criteria** (what must be TRUE):
 
-  1. Um único endpoint HTTP público recebe webhooks do ClickUp E do GHL, e só processa eventos cuja autenticidade (assinatura HMAC/segredo) foi validada
+  1. Um endpoint HTTP público (atrás do Caddy/TLS no VPS) recebe o webhook do ClickUp e só processa eventos cuja assinatura HMAC (`X-Signature`) foi validada. (O GHL NÃO emite webhook de post — confirmado na pesquisa; o lado GHL é polling, não webhook.)
   2. (Gatilho) Quando uma task da lista de agendamentos muda para `agendado`, o webhook do ClickUp dispara `processTask` em tempo real, reusando o pipeline da Phase 2 (upload+createPost+write-back)
-  3. (Sync) O evento do GHL é mapeado de volta para a task correta via id do post salvo; ao publicar, a task vai para `publicado` com `IG Media ID` e `Link publicado`; ao falhar, preenche `Erro de publicação`
+  3. (Sync via polling) Um loop periódico consulta o GHL pelos posts agendados via id salvo; ao publicar, a task vai para `publicado` com `IG Media ID` e `Link publicado`; ao falhar, volta para `a agendar` com `Erro de publicação`
   4. Reentrega/duplicação de qualquer webhook não reagenda nem corrompe a task (idempotência — reusa a guarda do GHL Post ID e dedup de evento)
   5. O batch `npm start` continua funcionando como fallback manual de varredura/reprocessamento
 

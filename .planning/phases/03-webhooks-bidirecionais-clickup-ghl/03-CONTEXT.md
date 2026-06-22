@@ -10,11 +10,11 @@ Construir UM servidor HTTP público (hospedado no VPS próprio da Auton) que ate
 
 1. **ClickUp → GHL (gatilho, TRIG-01..05):** quando o humano move uma task da lista de agendamentos (`901327135553`, team Auton `90132819023`) para o status `agendado`, o ClickUp dispara um webhook → o servidor valida a assinatura, filtra o evento e chama `processTask` (reusa 100% do pipeline da Phase 2) para agendar no GHL em tempo real — sem `npm start` manual.
 
-2. **GHL → ClickUp (sync, SYNC-01..06):** quando o GHL publica ou falha um post, o webhook do GHL → o servidor mapeia o evento de volta para a task (via GHL Post ID salvo) e atualiza status/campos.
+2. **GHL → ClickUp (sync, SYNC-01..06) — via POLLING, não webhook:** a pesquisa confirmou (RESEARCH RQ1, confiança HIGH) que o **GHL Social Planner NÃO emite webhook de post publicado/falha**. Portanto este lado é um **loop de polling periódico** (`setInterval`) que consulta `GET /social-media-posting/:locationId/posts/:id` dos posts agendados (task com GHL Post ID mas ainda não `publicado`) e faz o write-back. Não há rota `/webhook/ghl`.
 
 O batch `npm start` (runSchedulerBatch) permanece como **fallback manual** de varredura/reprocessamento (TRIG-05). Endurecimento operacional completo (autostart, monitoring, runbook) é Phase 4.
 
-**Em escopo:** servidor HTTP nativo, 2 rotas de webhook, validação HMAC, handler ClickUp→processTask, handler GHL→write-back de status, idempotência, script de registro de webhooks, ingress via **smee.io** (smee-client no VPS encaminhando pro servidor local), deploy básico funcional no VPS.
+**Em escopo:** servidor HTTP nativo (1 rota de webhook ClickUp + health), validação HMAC, handler ClickUp→processTask, **loop de polling GHL→write-back**, idempotência, script de registro do webhook ClickUp, **ingress direto no VPS atrás do Caddy (TLS automático)**, deploy básico funcional no VPS.
 **Fora de escopo (Phase 4):** PM2/systemd autostart, monitoring/alertas, runbook completo de deploy, resiliência avançada (retries/backoff no nível de processo), loop contínuo configurável.
 </domain>
 
@@ -25,7 +25,7 @@ O batch `npm start` (runSchedulerBatch) permanece como **fallback manual** de va
 - **L-01:** Gatilho por **webhook** (tempo real), não polling. (Decisão do usuário — ver memória `webhook-trigger-decision`.)
 - **L-02:** Hospedagem em **VPS próprio** da Auton (usuário cuida de domínio/TLS de borda; nós preparamos servidor + docs de deploy).
 - **D-05:** Framework = **node:http nativo (zero deps)** — alinha com o projeto standalone/sem-framework (já usa fetch nativo, zod, Bottleneck, p-retry). Vantagem decisiva: controle total do **raw body**, necessário para verificar assinatura HMAC byte-a-byte. NÃO usar Express/Fastify.
-- **D-06:** Um único processo/servidor, **duas rotas**: `/webhook/clickup` e `/webhook/ghl`. (+ um health check simples, ex.: `GET /health`.)
+- **D-06:** Um único processo/servidor com **uma rota de webhook** (`POST /webhook/clickup`) + `GET /health`. O lado GHL é um **loop de polling interno** no mesmo processo (não é rota HTTP). (Atualizado pós-pesquisa: a antiga rota `/webhook/ghl` foi removida porque o GHL não envia webhook.)
 
 ### Segurança
 - **L-05:** Validação de **assinatura HMAC** obrigatória em AMBOS os webhooks, ANTES de processar qualquer payload. Requests sem assinatura válida → 401, sem efeito colateral. Segredos de assinatura vivem no `.env` (fail-fast via zod, padrão CFG-01), nunca hardcoded, nunca logados.
@@ -44,8 +44,7 @@ O batch `npm start` (runSchedulerBatch) permanece como **fallback manual** de va
 ### Setup / operação
 - **D-04:** Registro dos webhooks via **script automatizado idempotente** (ex.: `npm run setup:webhooks`) que chama as APIs (ClickUp `POST /team/{team_id}/webhook`, GHL) para criar/atualizar os endpoints. Reexecutável sem duplicar. Os segredos retornados (signature secrets) vão pro `.env`.
 - **D-03:** Deploy **básico incluído na Phase 3** — o serviço fica rodando no VPS e recebendo webhooks de verdade ao fim da fase. Endurecimento (autostart, monitoring, runbook completo) é Phase 4.
-- **D-08 (ingress via smee.io):** O ingress dos webhooks usa **smee.io** (relay/proxy de webhooks). A URL pública registrada no ClickUp/GHL é um canal `https://smee.io/<id>`; no VPS roda um **smee-client** que conecta para FORA até o smee.io e encaminha os POSTs para o servidor `node:http` local (`http://localhost:PORT`). Vantagem: **dispensa** configurar HTTPS/domínio/TLS/porta pública inbound no VPS — o smee-client é só saída. Verificar na pesquisa que o smee-client **preserva os headers** (a assinatura HMAC precisa sobreviver ao relay — ver RQ5). Nova dependência provável: `smee-client`.
-  - ⚠️ **Caveat de produção:** o smee.io é oficialmente "dev/best-effort" (canal público, sem SLA). Decisão atual = usar smee.io pela simplicidade; a Phase 4 pode reavaliar um reverse proxy próprio (nginx/caddy) se precisar de robustez/SLA. A assinatura HMAC mitiga o canal ser público (payloads forjados são rejeitados).
+- **D-08 (ingress direto + Caddy) — REVISADO pós-pesquisa:** o smee.io foi **descartado** porque o `smee-client` re-serializa o body (`JSON.stringify`), quebrando a verificação HMAC do ClickUp (bug `probot/smee-client#325`). Ingress agora é **endpoint direto no VPS atrás do Caddy** (reverse proxy com TLS automático via Let's Encrypt). O Caddy encaminha `https://<dominio>/webhook/clickup` → `http://localhost:PORT` preservando o **raw body** intacto (HMAC valida de verdade). O usuário cuida do domínio apontando pro VPS; o Caddyfile mínimo entra no escopo do deploy básico.
 - **TRIG-05:** `npm start` (runSchedulerBatch) permanece funcional como fallback manual.
 
 ### Claude's Discretion
@@ -113,13 +112,18 @@ O batch `npm start` (runSchedulerBatch) permanece como **fallback manual** de va
 - **Phase 4 (Operação & Robustez):** PM2/systemd autostart, monitoring/alertas, runbook completo de deploy, resiliência de processo (restart, retries/backoff de longo prazo), loop contínuo configurável. (D-03 deixa só o deploy MÍNIMO funcional na Phase 3.)
 - **Verificação ao vivo da capa de Reels** (`type:'reel'` + campo do thumbnail no GHL) — pendente da Phase 2, independente; não bloqueia a Phase 3.
 
-## Open Research Questions (para o gsd-phase-researcher)
+## Research Resolution (ver 03-RESEARCH.md — RQ1–RQ5 respondidas)
 
-- **RQ1 (GHL webhooks):** O GHL Social Planner envia webhooks para eventos de post (publicado/falha)? Como registrar (workflow/automation webhook vs evento nativo)? Qual o shape do payload e como extrair o post id para mapear de volta à task? Como o GHL assina o webhook (header/segredo)?
-- **RQ2 (ClickUp webhooks):** Esquema de assinatura (header `X-Signature`, HMAC-SHA256 com o secret retornado na criação?). Eventos disponíveis (confirmar `taskStatusUpdated`), shape do payload (traz o status novo? ou precisa `getTask`?). Endpoint de registro `POST /team/{team_id}/webhook` — parâmetros, escopo por lista, e como tornar idempotente.
-- **RQ3 (filtro de status):** `taskStatusUpdated` dispara em qualquer mudança — confirmar como filtrar para `agendado` a partir do payload.
-- **RQ4 (idempotência/dedup):** Estratégia de dedup de reentrega para o lado GHL→ClickUp (event id store em memória vs arquivo, dado VPS single-instance; impacto de restart).
-- **RQ5 (smee.io ingress):** Confirmar que o **smee-client** encaminha os **headers** (a assinatura HMAC do ClickUp/GHL precisa chegar intacta ao servidor local). Setup do smee-client no VPS (rodar como processo junto do servidor; reconexão automática). Criar canal smee.io (URL fixa? como gerar/persistir o id). Limitações conhecidas (best-effort, tamanho de payload). Fallback se o canal cair. Como isto convive com `npm run setup:webhooks` (a URL registrada no ClickUp/GHL passa a ser o canal smee.io).
+- **RQ1 (GHL webhooks) — RESOLVIDO:** GHL NÃO tem webhook de post (HIGH). Lado GHL→ClickUp = **polling** `GET /social-media-posting/:locationId/posts/:id`.
+- **RQ2 (ClickUp webhooks) — RESOLVIDO:** HMAC-SHA256, header `X-Signature`, secret no `webhook.secret` (só na criação). Registro `POST /api/v2/team/90132819023/webhook` com `list_id: 901327135553`; idempotente via `PUT /webhook/{id}`.
+- **RQ3 (filtro de status) — RESOLVIDO:** status novo vem inline em `history_items[0].after.status`. `getTask(task_id)` ainda necessário antes de `processTask` (para `custom_fields`).
+- **RQ4 (dedup) — RESOLVIDO:** Map in-memory com TTL; chave `webhook_id:history_items[0].id`; GHL Post ID já é âncora de estado (restart aceitável).
+- **RQ5 (smee.io) — RESOLVIDO/DESCARTADO:** smee-client quebra o HMAC (re-serializa o body, bug #325). Ingress trocado para **endpoint direto + Caddy (TLS)** — ver D-08.
+
+### Open items que ainda exigem SMOKE empírico (Wave 0 do plano)
+- **OQ1 (crítico):** shape exato de `GET /social-media-posting/:locationId/posts/:id` — campos de `status`, `igMediaId`/permalink (docs JS-rendered = LOW). Fazer SMOKE-GHL-GET-POST com um post real (ex.: o post agendado `6a39a0be892064b3bddd4ece` da Fase 2) antes de implementar o write-back do polling.
+- **OQ4:** nome EXATO do status `publicado` na lista 901327135553 → adicionar `STATUS_PUBLICADO` ao config/.env (os status confirmados na Fase 2 foram `a agendar | agendado | publicado | monitorando`, então provavelmente `publicado`).
+- Validar o webhook ClickUp ponta-a-ponta com um POST real assinado (SMOKE-CU-WEBHOOK) e confirmar que o Caddy preserva o raw body para o HMAC.
 </deferred>
 
 ---

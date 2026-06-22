@@ -23,7 +23,7 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 
 ### Sincronização GHL → ClickUp (SYNC)
 
-- [ ] **SYNC-01**: Endpoint HTTP público recebe webhook do GHL para eventos de post (publicado/erro)
+- [ ] **SYNC-01**: Loop de polling periódico consulta o GHL pelo status dos posts agendados (publicado/erro) — o GHL não emite webhook de post (confirmado na pesquisa Phase 3)
 - [ ] **SYNC-02**: Validar autenticidade do webhook (segredo/assinatura) antes de processar
 - [ ] **SYNC-03**: Mapear o post GHL recebido de volta para a task ClickUp (via id do post salvo)
 - [ ] **SYNC-04**: Ao publicar, mover a task para `publicado` e preencher `IG Media ID` e `Link publicado`
