@@ -75,7 +75,20 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Reentrega/duplicação de qualquer webhook não reagenda nem corrompe a task (idempotência — reusa a guarda do GHL Post ID e dedup de evento)
   5. O batch `npm start` continua funcionando como fallback manual de varredura/reprocessamento
 
-**Plans**: TBD
+**Plans**: 4 plans (3 waves)
+
+**Wave 1**
+
+  - [ ] 03-01-PLAN.md — Wave 0 (fundação + smoke empírico): config Phase 3 + ghl.getPost + smoke OQ1 (shape do GET /posts/:id) + OQ4 (status publicado) + scaffolds de teste RED (SYNC-01)
+
+**Wave 2** *(paralelo — sem overlap de arquivos; depende do Plano 01)*
+
+  - [ ] 03-02-PLAN.md — Slice ClickUp→GHL (TDD): servidor node:http + HMAC verify + DedupeStore + handler taskStatusUpdated→processTask + /health; npm start mantido (TRIG-01..05)
+  - [ ] 03-03-PLAN.md — Slice GHL→ClickUp polling (TDD): ghlStatusPoller write-back publicado/falha + dedup + isolamento por task (SYNC-01..06)
+
+**Wave 3** *(depende dos Planos 02 e 03)*
+
+  - [ ] 03-04-PLAN.md — Operacionalização: poller embutido no servidor (setInterval) + setup:webhooks idempotente + Caddyfile + deploy README + smoke ao vivo (TRIG-01, SYNC-01)
 
 ### Phase 4: Operação & Robustez
 
@@ -100,5 +113,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
 | 2. Agendamento ClickUp → GHL | 3/3 | Complete | 2026-06-22 |
-| 3. Sincronização GHL → ClickUp (Webhook) | 0/TBD | Not started | - |
+| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 0/4 | Planned | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |
