@@ -13,7 +13,7 @@ O projeto entrega a "cola" entre o ClickUp (painel de produção de conteúdo) e
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Fundação (Config + Clients + Logging)** - `.env`, clients autenticados de ClickUp e GHL e logging estruturado prontos para uso
+- [x] **Phase 1: Fundação (Config + Clients + Logging)** - `.env`, clients autenticados de ClickUp e GHL e logging estruturado prontos para uso (completed 2026-06-22)
 - [ ] **Phase 2: Agendamento ClickUp → GHL** - Task `a agendar` vira post agendado no GHL e volta como `agendado` no ClickUp
 - [ ] **Phase 3: Sincronização GHL → ClickUp (Webhook)** - Publicação/erro no GHL reflete automaticamente na task do ClickUp
 - [ ] **Phase 4: Operação & Robustez** - Serviço roda continuamente, sobrevive a falhas de rede e é deployável via README
@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
   - [x] 01-01-PLAN.md — Walking Skeleton: scaffold ESM + config fail-fast + clients ClickUp/GHL autenticados + logging + smoke test ponta-a-ponta (CFG-01..04)
-  - [ ] 01-02-PLAN.md — Hardening: testes de fail-fast/redaction/erro normalizado, smoke estendido (formato de custom field), README de setup + checkpoint de higiene de segredos (CFG-01, CFG-02, CFG-04)
+  - [x] 01-02-PLAN.md — Hardening: testes de fail-fast/redaction/erro normalizado, smoke estendido (formato de custom field), README de setup + checkpoint de higiene de segredos (CFG-01, CFG-02, CFG-04)
 
 ### Phase 2: Agendamento ClickUp → GHL
 
@@ -91,7 +91,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Fundação (Config + Clients + Logging) | 1/2 | In Progress|  |
+| 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
 | 2. Agendamento ClickUp → GHL | 0/TBD | Not started | - |
 | 3. Sincronização GHL → ClickUp (Webhook) | 0/TBD | Not started | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |
