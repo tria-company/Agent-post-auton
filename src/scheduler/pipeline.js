@@ -4,7 +4,8 @@
  * Orquestrador batch do pipeline de agendamento ClickUp → GHL (Phase 2).
  *
  * Fluxo principal (runSchedulerBatch):
- *   1. getListTasks: lê tasks com status 'a agendar' da lista ClickUp (SCH-01)
+ *   1. getListTasks: lê tasks com status 'agendado' da lista ClickUp (SCH-01)
+ *      [UAT decision: o humano move para 'agendado' para acionar o agendamento]
  *   2. Bootstrap: getListFields para montar mapa orderindex→label do campo Formato (Pitfall 2)
  *   3. Filtro de elegibilidade: Data de publicação preenchida + CF_GHL_POST_ID vazio (SCH-06/D-02)
  *   4. processTask para cada task elegível, isolada em try/catch (D-18)
@@ -19,13 +20,16 @@
  *   6. createPost agendado no GHL Social Planner com userId (CRÍTICO) (SCH-04)
  *      - type: 'post' | 'reel' (NUNCA 'carousel' — Pitfall 1/A1)
  *      - media[]: todos os arquivos para Carrossel, 1 arquivo para Reels/Feed (D-10)
- *   7. write-back de sucesso: updateTask(agendado) → setCustomField(CF_GHL_POST_ID) (SCH-05)
+ *   7. write-back de sucesso: setCustomField(CF_GHL_POST_ID) → addComment('✅ Agendado no GHL…') (SCH-05)
+ *      [status permanece 'agendado' — task já estava neste status quando detectada]
  *   8. try/finally: cleanupTmp sempre executado (D-11)
  *
- * Falha de validação / erro GHL/MinIO:
- *   - setCustomField(CF_ERRO_PUBLICACAO, mensagemCurta) SEM updateTask de status (D-14/D-15/SCH-07)
- *   - Status permanece STATUS_A_AGENDAR para retry
+ * Falha de validação / erro GHL/MinIO (UAT decision — estado invertido):
+ *   - updateTask(STATUS_A_AGENDAR): devolve a task ao estado inicial para retry (defensivo)
+ *   - setCustomField(CF_ERRO_PUBLICACAO, mensagemCurta): registra o erro
+ *   - addComment('❌ Falha ao agendar…'): comentário visível no card
  *   - Mensagem curta, sem stack trace, sem URL, sem token (D-15/T-02-03)
+ *   - Cada write-back de falha é defensivo — se um lança, loga e continua para o próximo (D-18)
  *   - Falha isolada não aborta o batch (D-18/T-02-10)
  *
  * Segurança:
@@ -268,12 +272,22 @@ export async function processTask(task, formatoOptionsMap) {
     }
 
     // --- 7. Write-back de sucesso (SCH-05) ---
-    // Ordem obrigatória: createPost → updateTask → setCustomField (Pitfall anti-pattern)
-    taskLog.info({ step: 'writeback.status' }, 'Atualizando status para agendado no ClickUp');
-    await clickup.updateTask(task.id, { status: config.STATUS_AGENDADO });
-
+    // Ordem: createPost → setCustomField(GHL Post ID) → addComment
+    // Status NÃO é alterado — a task já está em STATUS_AGENDADO (humano a moveu para acionar).
+    // O marcador de idempotência (CF_GHL_POST_ID) impede re-agendamento em futuras passadas.
     taskLog.info({ step: 'writeback.postId' }, 'Gravando GHL Post ID no ClickUp');
     await clickup.setCustomField(task.id, config.CF_GHL_POST_ID, postId);
+
+    taskLog.info({ step: 'writeback.comment' }, 'Adicionando comentário de sucesso no ClickUp');
+    try {
+      await clickup.addComment(task.id, `✅ Agendado no GHL — post id: ${postId}`);
+    } catch (commentErr) {
+      // Comentário de sucesso é não-fatal — se falhar, logar e continuar
+      taskLog.warn(
+        { step: 'writeback.comment.error', commentErrMsg: commentErr?.message },
+        'Falha ao adicionar comentário de sucesso no ClickUp — continuando',
+      );
+    }
 
     taskLog.info({ step: 'done', postId }, 'Task agendada com sucesso');
 
@@ -295,9 +309,10 @@ export async function processTask(task, formatoOptionsMap) {
 export async function runSchedulerBatch() {
   log.info({ step: 'start' }, 'Iniciando passada batch do scheduler');
 
-  // --- 1. Buscar tasks com status 'a agendar' ---
-  const tasks = await clickup.getListTasks(config.CLICKUP_LIST_ID, config.STATUS_A_AGENDAR);
-  log.info({ step: 'getListTasks', count: tasks.length }, `${tasks.length} task(s) com status '${config.STATUS_A_AGENDAR}' encontrada(s)`);
+  // --- 1. Buscar tasks com status 'agendado' ---
+  // O humano move uma task para STATUS_AGENDADO para acionar o agendamento no GHL (UAT decision).
+  const tasks = await clickup.getListTasks(config.CLICKUP_LIST_ID, config.STATUS_AGENDADO);
+  log.info({ step: 'getListTasks', count: tasks.length }, `${tasks.length} task(s) com status '${config.STATUS_AGENDADO}' encontrada(s)`);
 
   // --- 2. Bootstrap: mapa orderindex→label para o campo Formato (Pitfall 2) ---
   // O ClickUp armazena o valor de campos dropdown como orderindex (número),
@@ -335,7 +350,7 @@ export async function runSchedulerBatch() {
     log.info({ step: 'singleTaskFilter', onlyTaskId }, `modo task única: ${onlyTaskId}`);
     const found = tasks.find((t) => t.id === onlyTaskId);
     if (!found) {
-      log.warn({ step: 'singleTaskFilter', onlyTaskId }, `task ${onlyTaskId} não encontrada em '${config.STATUS_A_AGENDAR}'`);
+      log.warn({ step: 'singleTaskFilter', onlyTaskId }, `task ${onlyTaskId} não encontrada em '${config.STATUS_AGENDADO}'`);
       candidateTasks = [];
     } else {
       candidateTasks = [found];
@@ -383,10 +398,20 @@ export async function runSchedulerBatch() {
       // Logar em nível warn SEM a URL do MinIO (T-02-03) — apenas taskId (já no contexto) + mensagem
       taskLog.warn({ step: 'processTask.error', errMsg: mensagem }, 'Falha ao processar task — continuando batch');
 
-      // Write-back de falha (SCH-07/D-14/D-15):
-      //   - setCustomField(CF_ERRO_PUBLICACAO) com mensagem curta e segura
-      //   - addComment com a mesma mensagem (comentário visível no card)
-      //   - NÃO chamar updateTask — status permanece STATUS_A_AGENDAR para retry
+      // Write-back de falha (SCH-07/D-14/D-15) — UAT decision (estado invertido):
+      //   1. updateTask(STATUS_A_AGENDAR): devolve a task para o humano corrigir e retentar
+      //   2. setCustomField(CF_ERRO_PUBLICACAO) com mensagem curta e segura
+      //   3. addComment com a mesma mensagem (comentário visível no card)
+      // Cada passo é defensivo — se um lança, loga e continua (D-18).
+      try {
+        await clickup.updateTask(task.id, { status: config.STATUS_A_AGENDAR });
+      } catch (updateErr) {
+        taskLog.warn(
+          { step: 'processTask.writeback.updateTask.error', updateErrMsg: updateErr?.message },
+          'Falha ao devolver task para a agendar — continuando batch',
+        );
+      }
+
       try {
         await clickup.setCustomField(task.id, config.CF_ERRO_PUBLICACAO, mensagem);
       } catch (writebackErr) {
