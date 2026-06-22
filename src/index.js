@@ -47,11 +47,12 @@ export async function boot() {
   log.info({ step: 'done' }, 'Fundação OK — clients prontos');
 }
 
-// Execução direta (entrypoint): chamar boot() e sair com código adequado
-// import.meta.url === process.argv[1] → true quando executado diretamente
-const isEntrypoint =
-  process.argv[1] &&
-  import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/').replace(/^[A-Z]:/, ''));
+// Execução direta (entrypoint): chamar boot() e sair com código adequado.
+// Usa fileURLToPath para comparar corretamente em todos os SOs (incluindo Windows).
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const isEntrypoint = process.argv[1] === __filename;
 
 if (isEntrypoint || process.env.DIRECT_RUN === '1') {
   const log = withContext({ action: 'boot' });
