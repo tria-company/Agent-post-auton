@@ -1480,3 +1480,356 @@ test('segurança (D-15): CF_ERRO_PUBLICACAO não contém http/pit-/pk_ e é trun
 
   fetchMock.mock.restore();
 });
+
+// ---------------------------------------------------------------------------
+// TEST 20: SCHEDULER_ONLY_TASK_ID — restringe batch a uma única task
+// ---------------------------------------------------------------------------
+
+test('SCHEDULER_ONLY_TASK_ID: com 3 tasks elegíveis e env var definida, somente a task alvo é processada', async (t) => {
+  const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+  const processedIds = [];
+
+  // 3 tasks elegíveis
+  const task1 = {
+    id: 'ONLY001',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 1' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip1.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+  const task2 = {
+    id: 'ONLY002',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 2' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip2.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+  const task3 = {
+    id: 'ONLY003',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 3' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip3.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+
+  // Define a env var para restringir à task2
+  process.env.SCHEDULER_ONLY_TASK_ID = 'ONLY002';
+
+  try {
+    const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+      const urlStr = String(url);
+
+      if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+        const u = new URL(urlStr);
+        if (Number(u.searchParams.get('page') ?? '0') === 0) {
+          return fakeResponse(200, { tasks: [task1, task2, task3] });
+        }
+        return fakeResponse(200, { tasks: [] });
+      }
+
+      if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+        return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+          { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+          { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+        ]}}] });
+      }
+
+      if (urlStr.includes('minio.example.com')) {
+        return {
+          status: 200, ok: true, headers: { get: () => null },
+          async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+        };
+      }
+
+      if (urlStr.includes('/medias/upload-file')) {
+        return fakeResponse(200, { url: 'https://cdn.ghl.com/test.jpg', fileId: 'FX' });
+      }
+
+      if (urlStr.includes('/posts') && opts?.method === 'POST') {
+        return fakeResponse(201, { results: { post: { _id: 'PID_ONLY' } } });
+      }
+
+      // updateTask — capturar qual task foi agendada
+      if (urlStr.match(/\/task\/(ONLY\d+)/) && opts?.method === 'PUT') {
+        const taskId = urlStr.match(/\/task\/(ONLY\d+)/)?.[1];
+        if (taskId) processedIds.push(taskId);
+        return fakeResponse(200, {});
+      }
+
+      if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+        return fakeResponse(200, {});
+      }
+
+      if (urlStr.match(/\/task\/[^/]+\/comment/) && opts?.method === 'POST') {
+        return fakeResponse(200, {});
+      }
+
+      return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+    });
+
+    const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+    await runSchedulerBatch();
+
+    fetchMock.mock.restore();
+  } finally {
+    delete process.env.SCHEDULER_ONLY_TASK_ID;
+  }
+
+  // Somente ONLY002 deve ter sido processada
+  assert.strictEqual(processedIds.length, 1, 'exatamente 1 task deve ter sido processada');
+  assert.strictEqual(processedIds[0], 'ONLY002', 'a task processada deve ser ONLY002 (a alvo)');
+});
+
+// ---------------------------------------------------------------------------
+// TEST 21: SCHEDULER_ONLY_TASK_ID — id não encontrado entre as tasks 'a agendar'
+// ---------------------------------------------------------------------------
+
+test('SCHEDULER_ONLY_TASK_ID: id não encontrado → aviso logado e nenhuma task processada', async (t) => {
+  const processedIds = [];
+
+  process.env.SCHEDULER_ONLY_TASK_ID = 'NAOEXISTE999';
+
+  try {
+    const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+      const urlStr = String(url);
+
+      if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+        const u = new URL(urlStr);
+        if (Number(u.searchParams.get('page') ?? '0') === 0) {
+          return fakeResponse(200, { tasks: [
+            {
+              id: 'FOUND001',
+              custom_fields: [
+                { id: CF_GHL_POST_ID,     value: null },
+                { id: CF_LEGENDA,         value: 'Legenda' },
+                { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/z.zip' },
+                { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+                { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+              ],
+            },
+          ]});
+        }
+        return fakeResponse(200, { tasks: [] });
+      }
+
+      if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+        return fakeResponse(200, { fields: [] });
+      }
+
+      // updateTask — não deve ser chamado
+      if (opts?.method === 'PUT') {
+        processedIds.push(urlStr);
+        return fakeResponse(200, {});
+      }
+
+      return fakeResponse(404, {});
+    });
+
+    const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+    await runSchedulerBatch();
+
+    fetchMock.mock.restore();
+  } finally {
+    delete process.env.SCHEDULER_ONLY_TASK_ID;
+  }
+
+  assert.strictEqual(processedIds.length, 0, 'nenhuma task deve ter sido processada quando o id alvo não existe');
+});
+
+// ---------------------------------------------------------------------------
+// TEST 22: comment-on-failure — addComment chamado com task id e mensagem segura
+// ---------------------------------------------------------------------------
+
+test('falha na task: addComment chamado com taskId e mensagem contendo o erro, sem http/pit-/pk_', async (t) => {
+  const captures = { commentTaskId: null, commentText: null, errMsg: null };
+
+  // Task com Formato inválido → vai para o path de falha
+  const task = {
+    id: 'FAIL_COMMENT_001',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip.zip' },
+      { id: CF_FORMATO,         value: 999 }, // orderindex sem mapeamento → 'Formato vazio'
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [task] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    // setCustomField (CF_ERRO_PUBLICACAO write-back)
+    if (urlStr.match(/\/task\/FAIL_COMMENT_001\/field\//) && opts?.method === 'POST') {
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
+      captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    // addComment — capturar taskId e texto
+    if (urlStr.match(/\/task\/([^/]+)\/comment/) && opts?.method === 'POST') {
+      captures.commentTaskId = urlStr.match(/\/task\/([^/]+)\/comment/)?.[1];
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
+      captures.commentText = body.comment_text;
+      return fakeResponse(200, {});
+    }
+
+    // updateTask — não deve ser chamado no path de falha
+    if (urlStr.includes('/task/') && opts?.method === 'PUT') {
+      assert.fail('updateTask NÃO deve ser chamado no path de falha');
+    }
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  // CF_ERRO_PUBLICACAO deve ter sido escrito
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+
+  // addComment deve ter sido chamado com o id correto
+  assert.strictEqual(captures.commentTaskId, 'FAIL_COMMENT_001', 'addComment deve ser chamado com o taskId correto');
+
+  // Texto do comentário deve conter a mensagem de erro
+  assert.ok(captures.commentText !== null, 'addComment deve ter sido chamado com texto');
+  assert.ok(
+    captures.commentText.includes('Falha') || captures.commentText.includes('Formato'),
+    `Texto do comentário deve mencionar a falha. Recebido: "${captures.commentText}"`,
+  );
+
+  // Segurança: sem http, pit-, pk_
+  assert.ok(!captures.commentText.includes('http'), `Texto NÃO deve conter 'http'. Recebido: "${captures.commentText}"`);
+  assert.ok(!captures.commentText.includes('pit-'), `Texto NÃO deve conter 'pit-'. Recebido: "${captures.commentText}"`);
+  assert.ok(!captures.commentText.includes('pk_'),  `Texto NÃO deve conter 'pk_'. Recebido: "${captures.commentText}"`);
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 23: comment-on-failure — CF_ERRO_PUBLICACAO ainda é escrito mesmo quando addComment falha
+// ---------------------------------------------------------------------------
+
+test('falha na task: se addComment lança, CF_ERRO_PUBLICACAO ainda é gravado e o batch continua', async (t) => {
+  const captures = { errMsg: null, nextTaskProcessed: false };
+  const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+
+  // task1: inválida (Formato vazio) → falha + addComment vai lançar
+  const task1 = {
+    id: 'COMMENT_FAIL_T1',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 1' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/z1.zip' },
+      { id: CF_FORMATO,         value: 999 }, // inválido
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+  // task2: válida → deve ser processada após a falha da task1
+  const task2 = {
+    id: 'COMMENT_FAIL_T2',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 2' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/z2.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [task1, task2] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    if (urlStr.includes('/medias/upload-file')) {
+      return fakeResponse(200, { url: 'https://cdn.ghl.com/t.jpg', fileId: 'FX' });
+    }
+
+    if (urlStr.includes('/posts') && opts?.method === 'POST') {
+      return fakeResponse(201, { results: { post: { _id: 'PID_OK' } } });
+    }
+
+    // setCustomField (CF_ERRO_PUBLICACAO para task1, ou CF_GHL_POST_ID para task2)
+    if (urlStr.match(/\/task\/COMMENT_FAIL_T1\/field\//) && opts?.method === 'POST') {
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
+      captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    // addComment para task1 → simular falha (lança exceção)
+    if (urlStr.includes('/task/COMMENT_FAIL_T1/comment') && opts?.method === 'POST') {
+      throw new Error('Falha simulada no addComment');
+    }
+
+    // updateTask para task2 (sucesso)
+    if (urlStr.includes('/task/COMMENT_FAIL_T2') && opts?.method === 'PUT') {
+      captures.nextTaskProcessed = true;
+      return fakeResponse(200, {});
+    }
+
+    if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
+    if (urlStr.match(/\/task\/[^/]+\/comment/) && opts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  // CF_ERRO_PUBLICACAO deve ter sido escrito mesmo com addComment lançando
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito antes do addComment falhar');
+
+  // O batch deve ter continuado e processado a task2
+  assert.strictEqual(captures.nextTaskProcessed, true, 'a task2 deve ter sido processada após a falha de addComment na task1');
+
+  fetchMock.mock.restore();
+});

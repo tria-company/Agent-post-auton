@@ -142,6 +142,39 @@ test('ghl.request: 401 rejects with AppError, not TypeError, and does not retry'
 });
 
 // ---------------------------------------------------------------------------
+// clickup.addComment — unit test
+// ---------------------------------------------------------------------------
+
+test('clickup.addComment: POST /task/{id}/comment com body comment_text', async (t) => {
+  let capturedUrl = '';
+  let capturedBody = null;
+  let callCount = 0;
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    callCount++;
+    capturedUrl = String(url);
+    capturedBody = opts?.body ? JSON.parse(opts.body) : null;
+    return {
+      status: 200,
+      ok: true,
+      headers: { get: () => null },
+      async json() { return { id: 'COMMENT001' }; },
+      async text() { return JSON.stringify({ id: 'COMMENT001' }); },
+    };
+  });
+
+  const { clickup } = await import('../src/clients/clickup.js');
+  await clickup.addComment('TASK_TEST_001', 'Comentário de teste');
+
+  assert.ok(capturedUrl.includes('/task/TASK_TEST_001/comment'), `URL deve incluir /task/TASK_TEST_001/comment. URL: ${capturedUrl}`);
+  assert.strictEqual(callCount, 1, 'fetch deve ser chamado exatamente 1 vez');
+  assert.ok(capturedBody !== null, 'body não deve ser null');
+  assert.strictEqual(capturedBody.comment_text, 'Comentário de teste', 'body.comment_text deve ser o texto passado');
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
 // Extra: 5xx IS retried (confirm retry path still works after the CR-01 fix)
 // ---------------------------------------------------------------------------
 

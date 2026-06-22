@@ -112,7 +112,7 @@ async function request(method, path, body) {
 /**
  * Client ClickUp exportado.
  * Phase 1: getList, getListFields, getTask, updateTask, setCustomField.
- * Phase 2: getListTasks com paginação automática.
+ * Phase 2: getListTasks com paginação automática; addComment.
  */
 export const clickup = {
   /**
@@ -163,6 +163,17 @@ export const clickup = {
    */
   setCustomField: (taskId, fieldId, value) =>
     request('POST', `/task/${taskId}/field/${fieldId}`, { value }),
+
+  /**
+   * Adiciona um comentário a uma task.
+   * POST /task/{taskId}/comment
+   *
+   * @param {string} taskId
+   * @param {string} commentText - Texto do comentário
+   * @returns {Promise<object|null>}
+   */
+  addComment: (taskId, commentText) =>
+    request('POST', `/task/${taskId}/comment`, { comment_text: commentText }),
 
   /**
    * Lista tasks de uma lista com filtro por status — paginação automática.

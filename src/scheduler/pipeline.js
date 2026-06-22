@@ -326,10 +326,26 @@ export async function runSchedulerBatch() {
     log.warn({ step: 'formatoMap', err: err?.message }, 'Falha ao carregar mapa de opções do Formato — continuando');
   }
 
-  // --- 3. Filtro de elegibilidade (SCH-01 + SCH-06/D-02) ---
+  // --- 3a. Filtro de task única (override operacional via SCHEDULER_ONLY_TASK_ID) ---
+  // Quando a variável está definida, restringe o processamento a uma única task por id.
+  // Não altera o comportamento padrão quando a variável está ausente.
+  const onlyTaskId = process.env.SCHEDULER_ONLY_TASK_ID || '';
+  let candidateTasks = tasks;
+  if (onlyTaskId) {
+    log.info({ step: 'singleTaskFilter', onlyTaskId }, `modo task única: ${onlyTaskId}`);
+    const found = tasks.find((t) => t.id === onlyTaskId);
+    if (!found) {
+      log.warn({ step: 'singleTaskFilter', onlyTaskId }, `task ${onlyTaskId} não encontrada em '${config.STATUS_A_AGENDAR}'`);
+      candidateTasks = [];
+    } else {
+      candidateTasks = [found];
+    }
+  }
+
+  // --- 3b. Filtro de elegibilidade (SCH-01 + SCH-06/D-02) ---
   // Elegível = Data de publicação preenchida E CF_GHL_POST_ID vazio
   // (idempotência ANTES de qualquer chamada ao GHL)
-  const eligibleTasks = tasks.filter((t) => {
+  const eligibleTasks = candidateTasks.filter((t) => {
     const dataPublicacao = readCF(t, config.CF_DATA_PUBLICACAO);
     const ghlPostId      = readCF(t, config.CF_GHL_POST_ID);
 
@@ -342,7 +358,7 @@ export async function runSchedulerBatch() {
     return true;
   });
 
-  log.info({ step: 'filter', eligible: eligibleTasks.length, total: tasks.length }, `${eligibleTasks.length} task(s) elegível(is) para agendamento`);
+  log.info({ step: 'filter', eligible: eligibleTasks.length, total: candidateTasks.length }, `${eligibleTasks.length} task(s) elegível(is) para agendamento`);
 
   if (eligibleTasks.length === 0) {
     log.info({ step: 'done' }, 'Nenhuma task elegível — batch concluído sem ações');
@@ -369,6 +385,7 @@ export async function runSchedulerBatch() {
 
       // Write-back de falha (SCH-07/D-14/D-15):
       //   - setCustomField(CF_ERRO_PUBLICACAO) com mensagem curta e segura
+      //   - addComment com a mesma mensagem (comentário visível no card)
       //   - NÃO chamar updateTask — status permanece STATUS_A_AGENDAR para retry
       try {
         await clickup.setCustomField(task.id, config.CF_ERRO_PUBLICACAO, mensagem);
@@ -377,6 +394,17 @@ export async function runSchedulerBatch() {
         taskLog.warn(
           { step: 'processTask.writeback.error', writebackErrMsg: writebackErr?.message },
           'Falha ao gravar Erro de publicação no ClickUp — continuando batch',
+        );
+      }
+
+      // Adicionar comentário no card do ClickUp com a mesma mensagem curta e segura.
+      // Falha do comentário é não-fatal — não deve interromper o batch.
+      try {
+        await clickup.addComment(task.id, `❌ Falha ao agendar: ${mensagem}`);
+      } catch (commentErr) {
+        taskLog.warn(
+          { step: 'processTask.comment.error', commentErrMsg: commentErr?.message },
+          'Falha ao adicionar comentário no ClickUp — continuando batch',
         );
       }
     }
