@@ -17,6 +17,7 @@
  *   CU_FIELD_LINK_DO_POST    → CF_LINK_DO_POST
  *   CU_FIELD_FORMATO         → CF_FORMATO
  *   GHL_ACCOUNT_ID           → GHL_ACCOUNT_ID
+ *   GHL_USER_ID              → GHL_USER_ID
  *   STATUS_A_AGENDAR         → STATUS_A_AGENDAR  (default: 'a agendar')
  *   STATUS_AGENDADO          → STATUS_AGENDADO   (default: 'agendado')
  */
@@ -46,8 +47,9 @@ const EnvSchema = z.object({
   CU_FIELD_LINK_DO_POST: z.string().uuid({ message: 'CU_FIELD_LINK_DO_POST deve ser um UUID válido' }),
   CU_FIELD_FORMATO:      z.string().uuid({ message: 'CU_FIELD_FORMATO deve ser um UUID válido' }),
 
-  // Phase 2 — conta GHL e nomes de status (CFG-01)
+  // Phase 2 — conta GHL, user id e nomes de status (CFG-01)
   GHL_ACCOUNT_ID:   z.string().min(1, { message: 'GHL_ACCOUNT_ID é obrigatório' }),
+  GHL_USER_ID:      z.string().min(1, { message: 'GHL_USER_ID é obrigatório — obter via GET /users/?locationId=...' }),
   STATUS_A_AGENDAR: z.string().min(1).default('a agendar'),
   STATUS_AGENDADO:  z.string().min(1).default('agendado'),
 
@@ -88,6 +90,7 @@ const env = parsed.data;
  *   CF_LINK_DO_POST: string,
  *   CF_FORMATO: string,
  *   GHL_ACCOUNT_ID: string,
+ *   GHL_USER_ID: string,
  *   STATUS_A_AGENDAR: string,
  *   STATUS_AGENDADO: string,
  *   LOG_LEVEL: string,
@@ -110,8 +113,9 @@ export const config = Object.freeze({
   CF_GHL_POST_ID:      env.CU_FIELD_GHL_POST_ID,
   CF_LINK_DO_POST:     env.CU_FIELD_LINK_DO_POST,
   CF_FORMATO:          env.CU_FIELD_FORMATO,
-  // Phase 2 — conta GHL e status (sem prefixo CU_FIELD_; passam direto)
+  // Phase 2 — conta GHL, user id e status (sem prefixo CU_FIELD_; passam direto)
   GHL_ACCOUNT_ID:      env.GHL_ACCOUNT_ID,
+  GHL_USER_ID:         env.GHL_USER_ID,
   STATUS_A_AGENDAR:    env.STATUS_A_AGENDAR,
   STATUS_AGENDADO:     env.STATUS_AGENDADO,
   LOG_LEVEL:           env.LOG_LEVEL,

@@ -111,8 +111,8 @@ async function request(method, path, body) {
 
 /**
  * Client ClickUp exportado.
- * Expõe apenas os métodos necessários para a Phase 1 (smoke test).
- * Phases 2+ adicionarão: getListFields, getTask, updateTask, setCustomField.
+ * Phase 1: getList, getListFields, getTask, updateTask, setCustomField.
+ * Phase 2: getListTasks com paginação automática.
  */
 export const clickup = {
   /**
@@ -163,4 +163,33 @@ export const clickup = {
    */
   setCustomField: (taskId, fieldId, value) =>
     request('POST', `/task/${taskId}/field/${fieldId}`, { value }),
+
+  /**
+   * Lista tasks de uma lista com filtro por status — paginação automática.
+   * GET /list/{id}/task?statuses[]=...&page=N
+   *
+   * Pagina com while(true) por `page` até receber `tasks` vazio.
+   * Passa `statuses[]` como parâmetro de query string.
+   * Rate limit herdado do limiter via request(). Implementa SCH-01.
+   *
+   * @param {string} listId
+   * @param {string} statusFilter - valor exato do status (ex: config.STATUS_A_AGENDAR)
+   * @returns {Promise<Array<object>>}
+   */
+  getListTasks: async (listId, statusFilter) => {
+    const tasks = [];
+    let page = 0;
+    while (true) {
+      const params = new URLSearchParams();
+      params.append('statuses[]', statusFilter);
+      params.append('include_closed', 'false');
+      params.append('subtasks', 'false');
+      params.append('page', String(page));
+      const result = await request('GET', `/list/${listId}/task?${params}`);
+      if (!result?.tasks?.length) break;
+      tasks.push(...result.tasks);
+      page++;
+    }
+    return tasks;
+  },
 };
