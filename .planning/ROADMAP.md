@@ -51,11 +51,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Um post agendado aparece no GHL Social Planner para a conta `auton.app` no horário de `Data de publicação`, respeitando o `Formato` (Reels/Carrossel/Stories/Feed)
   4. Ao agendar com sucesso, a task passa para `agendado` e o id do post GHL fica persistido nela; uma task que já tem id de post salvo nunca é reagendada
   5. Em caso de falha ao agendar, a task permanece em `a agendar` e o campo `Erro de publicação` é preenchido com a causa, permitindo retry
-
-**Plans**: 3 plans
+**Plans**: 3 plans
+**Wave 1**
 
   - [ ] 02-01-PLAN.md — Wave 0 (setup): custom fields no ClickUp + config das 6 vars (CFG-01) + adm-zip + smoke empírico upload/createPost (SCH-01,03,04,05,06,07)
   - [ ] 02-02-PLAN.md — Wave 1 (slice principal): detecção+idempotência+resolução com fallback+download/unzip seguro+upload GHL+createPost mídia única+write-back de sucesso (SCH-01..06)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
   - [ ] 02-03-PLAN.md — Wave 2 (refinamento): carrossel multi-mídia ordenado + validação completa (Formato/Stories/data/conteúdo) + write-back de Erro de publicação + isolamento de falha (SCH-04, SCH-07)
 
 ### Phase 3: Sincronização GHL → ClickUp (Webhook)
