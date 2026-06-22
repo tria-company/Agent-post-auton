@@ -1,5 +1,5 @@
 ---
-status: testing
+status: passed
 phase: 02-agendamento-clickup-ghl
 source: [02-VERIFICATION.md]
 started: 2026-06-22
@@ -8,12 +8,7 @@ updated: 2026-06-22
 
 ## Current Test
 
-number: 2
-name: Execução end-to-end ao vivo (npm start)
-expected: |
-  Uma task real `a agendar` vira `agendado` com GHL Post ID preenchido e post agendado
-  no Social Planner da auton.app (single + carrossel + caminhos de erro).
-awaiting: user response
+(todos os testes concluídos — fase validada ao vivo em 2026-06-22)
 
 ## Tests
 
@@ -45,14 +40,24 @@ expected: |
   - (carrossel) um zip com N arquivos vira 1 post com as N mídias na ordem numérica
   - (erro) uma task com Formato='Stories'/data no passado/sem mídia preenche
     "Erro de publicação" e permanece em `a agendar`
-result: [pending]
+result: |
+  passed (2026-06-22) — validado ao vivo em produção. NOTA: durante a UAT o gatilho foi
+  INVERTIDO por decisão do usuário (commits fb59e64/6673fc8/89d3d0e): o humano move a task
+  para `agendado` (gatilho); sucesso mantém `agendado` + GHL Post ID + comentário; falha
+  volta para `a agendar` + Erro de publicação + comentário; `publicado` é Phase 3.
+  - SUCESSO: task 86aj5g8f2 (Carrossel, 10 imagens) → download+unzip MinIO → upload 1..10.png
+    em ordem → createPost (type=post, mediaCount=10) → GHL Post ID `6a39a0be892064b3bddd4ece`
+    gravado + comentário "✅ Agendado no GHL" + status mantido `agendado`.
+  - FALHA: a mesma task, antes de ter Legenda/mídia, caiu em validação ("CF_LEGENDA/CF_LINK_DO_POST
+    vazio") → voltou para `a agendar` + Erro de publicação + comentário "❌ Falha ao agendar".
+  - Isolamento (D-18) e Formato real (Reels/Carrossel/Stories/Feed estático) confirmados em produção.
 
 ## Summary
 
 total: 2
-passed: 1
+passed: 2
 issues: 0
-pending: 1
+pending: 0
 skipped: 0
 blocked: 0
 
