@@ -30,6 +30,10 @@ const ROOT = resolve(__dirname, '..');
 /**
  * Env mínimo completo com todos os campos obrigatórios usando valores sintéticos.
  * Garante que o import de config/index.js sai com exit code 0.
+ *
+ * Phase 2: inclui as 6 novas variáveis (CFG-01):
+ *   CU_FIELD_GHL_POST_ID, CU_FIELD_LINK_DO_POST, CU_FIELD_FORMATO,
+ *   GHL_ACCOUNT_ID, STATUS_A_AGENDAR, STATUS_AGENDADO
  */
 const FULL_ENV = {
   CLICKUP_TOKEN: 'pk_test_placeholder_token_value',
@@ -43,6 +47,14 @@ const FULL_ENV = {
   CU_FIELD_LINK_PUBLICADO: 'e98e36fe-1d17-48b7-a797-9ae9b1623d0f',
   CU_FIELD_ERRO_PUBLICACAO: '1137de68-9a0a-467e-8848-1d0e59844d5e',
   CU_FIELD_ID_TASK_MAE: '3f37fbaa-93d0-4344-9fe2-f7c2c7320383',
+  // Phase 2 — 6 novas variáveis obrigatórias (CFG-01)
+  // UUIDs sintéticos no formato v4 válido (não são reais)
+  CU_FIELD_GHL_POST_ID: 'a1b2c3d4-1234-4abc-8def-000000000001',
+  CU_FIELD_LINK_DO_POST: 'a1b2c3d4-1234-4abc-8def-000000000002',
+  CU_FIELD_FORMATO: '24e0f126-589f-400c-a602-0e4abe19b809',
+  GHL_ACCOUNT_ID: 'test-account-id_17841440215631995',
+  STATUS_A_AGENDAR: 'a agendar',
+  STATUS_AGENDADO: 'agendado',
   LOG_LEVEL: 'info',
   // Sem arquivo .env real — dotenv não vai encontrar nada, mas spawnSync envia process.env
   DOTENV_CONFIG_PATH: '/nonexistent/.env.test.nofile',
@@ -156,4 +168,73 @@ test('config: CLICKUP_TOKEN com prefixo errado → exit code !=0', () => {
   const result = runConfigImport(env);
 
   assert.notStrictEqual(result.status, 0, `Exit code esperado !=0 para token com prefixo inválido`);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2 — Testes das 6 novas variáveis (CFG-01)
+// ---------------------------------------------------------------------------
+
+test('config Phase 2: env completo com as 6 novas vars → exit code 0', () => {
+  // FULL_ENV já inclui as 6 novas vars — este teste confirma que o env completo
+  // (incluindo Phase 2) ainda sai com exit code 0
+  const result = runConfigImport(FULL_ENV);
+
+  assert.strictEqual(
+    result.status,
+    0,
+    `Exit code esperado 0 com env completo (Phase 2). Stderr: ${result.stderr?.slice(0, 500)}`,
+  );
+});
+
+test('config Phase 2: faltar CU_FIELD_GHL_POST_ID → fail-fast exit code !=0', () => {
+  const env = { ...FULL_ENV };
+  delete env.CU_FIELD_GHL_POST_ID;
+
+  const result = runConfigImport(env);
+
+  assert.notStrictEqual(
+    result.status,
+    0,
+    `Exit code esperado !=0 quando CU_FIELD_GHL_POST_ID está ausente`,
+  );
+  const combinedOutput = (result.stderr ?? '') + (result.stdout ?? '');
+  const mentionsTerm =
+    combinedOutput.toLowerCase().includes('cu_field_ghl_post_id') ||
+    combinedOutput.toLowerCase().includes('config') ||
+    combinedOutput.toLowerCase().includes('inválid');
+  assert.ok(mentionsTerm, `Stderr/stdout deve citar a variável. Recebido: ${result.stderr?.slice(0, 300)}`);
+});
+
+test('config Phase 2: faltar CU_FIELD_LINK_DO_POST → fail-fast exit code !=0', () => {
+  const env = { ...FULL_ENV };
+  delete env.CU_FIELD_LINK_DO_POST;
+
+  const result = runConfigImport(env);
+
+  assert.notStrictEqual(result.status, 0, `Exit code esperado !=0 quando CU_FIELD_LINK_DO_POST ausente`);
+});
+
+test('config Phase 2: faltar GHL_ACCOUNT_ID → fail-fast exit code !=0', () => {
+  const env = { ...FULL_ENV };
+  delete env.GHL_ACCOUNT_ID;
+
+  const result = runConfigImport(env);
+
+  assert.notStrictEqual(result.status, 0, `Exit code esperado !=0 quando GHL_ACCOUNT_ID ausente`);
+});
+
+test('config Phase 2: STATUS_A_AGENDAR e STATUS_AGENDADO têm defaults quando ausentes', () => {
+  // Remover os dois status do env — devem assumir defaults 'a agendar' e 'agendado'
+  // O config deve sair sem erro (exit code 0) pois ambos têm .default()
+  const env = { ...FULL_ENV };
+  delete env.STATUS_A_AGENDAR;
+  delete env.STATUS_AGENDADO;
+
+  const result = runConfigImport(env);
+
+  assert.strictEqual(
+    result.status,
+    0,
+    `Exit code esperado 0 — STATUS_A_AGENDAR e STATUS_AGENDADO têm defaults. Stderr: ${result.stderr?.slice(0, 500)}`,
+  );
 });

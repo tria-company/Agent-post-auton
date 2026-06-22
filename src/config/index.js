@@ -6,12 +6,19 @@
  * Exporta um objeto `config` congelado (Object.freeze) — zero valores hardcoded (CFG-01).
  *
  * Mapeamento de variáveis de ambiente → chaves no config exportado:
- *   CU_FIELD_LEGENDA        → CF_LEGENDA
+ *   CU_FIELD_LEGENDA         → CF_LEGENDA
  *   CU_FIELD_DATA_PUBLICACAO → CF_DATA_PUBLICACAO
- *   CU_FIELD_IG_MEDIA_ID    → CF_IG_MEDIA_ID
- *   CU_FIELD_LINK_PUBLICADO → CF_LINK_PUBLICADO
+ *   CU_FIELD_IG_MEDIA_ID     → CF_IG_MEDIA_ID
+ *   CU_FIELD_LINK_PUBLICADO  → CF_LINK_PUBLICADO
  *   CU_FIELD_ERRO_PUBLICACAO → CF_ERRO_PUBLICACAO
- *   CU_FIELD_ID_TASK_MAE    → CF_ID_TASK_MAE
+ *   CU_FIELD_ID_TASK_MAE     → CF_ID_TASK_MAE
+ *   -- Phase 2 (CFG-01) --
+ *   CU_FIELD_GHL_POST_ID     → CF_GHL_POST_ID
+ *   CU_FIELD_LINK_DO_POST    → CF_LINK_DO_POST
+ *   CU_FIELD_FORMATO         → CF_FORMATO
+ *   GHL_ACCOUNT_ID           → GHL_ACCOUNT_ID
+ *   STATUS_A_AGENDAR         → STATUS_A_AGENDAR  (default: 'a agendar')
+ *   STATUS_AGENDADO          → STATUS_AGENDADO   (default: 'agendado')
  */
 import 'dotenv/config';
 import { z } from 'zod';
@@ -33,6 +40,16 @@ const EnvSchema = z.object({
   CU_FIELD_LINK_PUBLICADO: z.string().uuid({ message: 'CU_FIELD_LINK_PUBLICADO deve ser um UUID válido' }),
   CU_FIELD_ERRO_PUBLICACAO: z.string().uuid({ message: 'CU_FIELD_ERRO_PUBLICACAO deve ser um UUID válido' }),
   CU_FIELD_ID_TASK_MAE: z.string().uuid({ message: 'CU_FIELD_ID_TASK_MAE deve ser um UUID válido' }),
+
+  // Phase 2 — custom fields novos (CFG-01)
+  CU_FIELD_GHL_POST_ID:  z.string().uuid({ message: 'CU_FIELD_GHL_POST_ID deve ser um UUID válido' }),
+  CU_FIELD_LINK_DO_POST: z.string().uuid({ message: 'CU_FIELD_LINK_DO_POST deve ser um UUID válido' }),
+  CU_FIELD_FORMATO:      z.string().uuid({ message: 'CU_FIELD_FORMATO deve ser um UUID válido' }),
+
+  // Phase 2 — conta GHL e nomes de status (CFG-01)
+  GHL_ACCOUNT_ID:   z.string().min(1, { message: 'GHL_ACCOUNT_ID é obrigatório' }),
+  STATUS_A_AGENDAR: z.string().min(1).default('a agendar'),
+  STATUS_AGENDADO:  z.string().min(1).default('agendado'),
 
   // Logging
   LOG_LEVEL: z
@@ -67,6 +84,12 @@ const env = parsed.data;
  *   CF_LINK_PUBLICADO: string,
  *   CF_ERRO_PUBLICACAO: string,
  *   CF_ID_TASK_MAE: string,
+ *   CF_GHL_POST_ID: string,
+ *   CF_LINK_DO_POST: string,
+ *   CF_FORMATO: string,
+ *   GHL_ACCOUNT_ID: string,
+ *   STATUS_A_AGENDAR: string,
+ *   STATUS_AGENDADO: string,
  *   LOG_LEVEL: string,
  * }>}
  */
@@ -77,11 +100,19 @@ export const config = Object.freeze({
   GHL_LOCATION_ID: env.GHL_LOCATION_ID,
   GHL_API_VERSION: env.GHL_API_VERSION,
   // Aliases CF_* (interfaces do plano) mapeados de CU_FIELD_*
-  CF_LEGENDA: env.CU_FIELD_LEGENDA,
-  CF_DATA_PUBLICACAO: env.CU_FIELD_DATA_PUBLICACAO,
-  CF_IG_MEDIA_ID: env.CU_FIELD_IG_MEDIA_ID,
-  CF_LINK_PUBLICADO: env.CU_FIELD_LINK_PUBLICADO,
-  CF_ERRO_PUBLICACAO: env.CU_FIELD_ERRO_PUBLICACAO,
-  CF_ID_TASK_MAE: env.CU_FIELD_ID_TASK_MAE,
-  LOG_LEVEL: env.LOG_LEVEL,
+  CF_LEGENDA:          env.CU_FIELD_LEGENDA,
+  CF_DATA_PUBLICACAO:  env.CU_FIELD_DATA_PUBLICACAO,
+  CF_IG_MEDIA_ID:      env.CU_FIELD_IG_MEDIA_ID,
+  CF_LINK_PUBLICADO:   env.CU_FIELD_LINK_PUBLICADO,
+  CF_ERRO_PUBLICACAO:  env.CU_FIELD_ERRO_PUBLICACAO,
+  CF_ID_TASK_MAE:      env.CU_FIELD_ID_TASK_MAE,
+  // Phase 2 — aliases CF_* novos (CFG-01)
+  CF_GHL_POST_ID:      env.CU_FIELD_GHL_POST_ID,
+  CF_LINK_DO_POST:     env.CU_FIELD_LINK_DO_POST,
+  CF_FORMATO:          env.CU_FIELD_FORMATO,
+  // Phase 2 — conta GHL e status (sem prefixo CU_FIELD_; passam direto)
+  GHL_ACCOUNT_ID:      env.GHL_ACCOUNT_ID,
+  STATUS_A_AGENDAR:    env.STATUS_A_AGENDAR,
+  STATUS_AGENDADO:     env.STATUS_AGENDADO,
+  LOG_LEVEL:           env.LOG_LEVEL,
 });
