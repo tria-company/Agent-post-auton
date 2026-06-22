@@ -6,10 +6,10 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 
 ### Configuração & Infra (CFG)
 
-- [ ] **CFG-01**: Toda configuração (tokens, locationId, list id, ids de campos e status) é lida de `.env`; nenhum segredo no código
-- [ ] **CFG-02**: Cliente ClickUp com autenticação por token e tratamento de rate limit (100 req/min)
-- [ ] **CFG-03**: Cliente GHL com `Authorization: Bearer` + header `Version`, apontando para a location configurada
-- [ ] **CFG-04**: Logging estruturado de cada ação (agendou, publicou, erro) com id da task e id do post GHL
+- [x] **CFG-01**: Toda configuração (tokens, locationId, list id, ids de campos e status) é lida de `.env`; nenhum segredo no código
+- [x] **CFG-02**: Cliente ClickUp com autenticação por token e tratamento de rate limit (100 req/min)
+- [x] **CFG-03**: Cliente GHL com `Authorization: Bearer` + header `Version`, apontando para a location configurada
+- [x] **CFG-04**: Logging estruturado de cada ação (agendou, publicou, erro) com id da task e id do post GHL
 
 ### Agendamento ClickUp → GHL (SCH)
 
@@ -52,10 +52,10 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CFG-01 | Phase 1 | Pending |
-| CFG-02 | Phase 1 | Pending |
-| CFG-03 | Phase 1 | Pending |
-| CFG-04 | Phase 1 | Pending |
+| CFG-01 | Phase 1 | Complete |
+| CFG-02 | Phase 1 | Complete |
+| CFG-03 | Phase 1 | Complete |
+| CFG-04 | Phase 1 | Complete |
 | SCH-01 | Phase 2 | Pending |
 | SCH-02 | Phase 2 | Pending |
 | SCH-03 | Phase 2 | Pending |
