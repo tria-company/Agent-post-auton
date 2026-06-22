@@ -44,7 +44,7 @@ import 'dotenv/config';
 // ---------------------------------------------------------------------------
 // 1. Valida que as variáveis críticas estão no .env (fail rápido sem crashar)
 // ---------------------------------------------------------------------------
-const REQUIRED = ['GHL_TOKEN', 'GHL_LOCATION_ID', 'GHL_API_VERSION', 'GHL_ACCOUNT_ID'];
+const REQUIRED = ['GHL_TOKEN', 'GHL_LOCATION_ID', 'GHL_API_VERSION', 'GHL_ACCOUNT_ID', 'GHL_USER_ID'];
 const missing = REQUIRED.filter(k => !process.env[k]);
 if (missing.length) {
   console.error('[smoke] ERRO: variáveis ausentes no .env:', missing.join(', '));
@@ -56,6 +56,7 @@ const GHL_TOKEN       = process.env.GHL_TOKEN;
 const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID;
 const GHL_API_VERSION = process.env.GHL_API_VERSION ?? '2021-07-28';
 const GHL_ACCOUNT_ID  = process.env.GHL_ACCOUNT_ID;
+const GHL_USER_ID     = process.env.GHL_USER_ID;
 const BASE_URL        = 'https://services.leadconnectorhq.com';
 
 console.log('[smoke] Iniciando smoke empírico: upload + createPost (Wave 0 / A1/A2/A4/A7)');
@@ -143,6 +144,7 @@ console.log('[smoke] PASSO B: criar post agendado de teste no GHL Social Planner
 const scheduleDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 const smokePayload = {
   accountIds:   [GHL_ACCOUNT_ID],
+  userId:       GHL_USER_ID,
   summary:      `[SMOKE TEST — APAGAR] Teste automático Wave 0 (${new Date().toISOString()})`,
   type:         'post',
   status:       'scheduled',
@@ -182,7 +184,9 @@ try {
   const data = await res.json();
   createPostResult = data;
 
-  const postId = data?.post?._id;
+  // Pitfall 7 (confirmado empiricamente Wave 0): o id vem em results.post._id,
+  // NÃO em post._id. Fallback mantido para compatibilidade defensiva.
+  const postId = data?.results?.post?._id ?? data?.post?._id;
   console.log('[smoke] PASSO B OK — post criado com sucesso');
   console.log('[smoke]   post._id:', postId ?? '(AUSENTE — verificar Pitfall 7 no RESEARCH.md!)');
   console.log('[smoke]   scheduleDate:', scheduleDate);
