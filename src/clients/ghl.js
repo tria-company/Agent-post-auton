@@ -175,6 +175,21 @@ export const ghl = {
     ),
 
   /**
+   * Busca um post do Social Planner pelo id.
+   * GET /social-media-posting/{locationId}/posts/{postId}
+   *
+   * Shape de resposta: SMOKE-GHL-GET-POST (Task 2 do Plano 03-01) obrigatório
+   * para confirmar os campos reais. Estimativas (A1/A2/A3 do RESEARCH.md):
+   *   { status: 'scheduled'|'published'|'failed', igMediaId, permalink, failureReason, ... }
+   * Estes campos são estimados até o smoke OQ1 confirmar os nomes reais.
+   *
+   * @param {string} postId
+   * @returns {Promise<object>}
+   */
+  getPost: (postId) =>
+    request('GET', `/social-media-posting/${config.GHL_LOCATION_ID}/posts/${postId}`),
+
+  /**
    * Cria um post agendado no Social Planner do GHL.
    * POST /social-media-posting/{locationId}/posts
    *

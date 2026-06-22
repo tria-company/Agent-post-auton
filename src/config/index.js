@@ -20,6 +20,11 @@
  *   GHL_USER_ID              → GHL_USER_ID
  *   STATUS_A_AGENDAR         → STATUS_A_AGENDAR  (default: 'a agendar')
  *   STATUS_AGENDADO          → STATUS_AGENDADO   (default: 'agendado')
+ *   -- Phase 3 (CFG-01) --
+ *   WEBHOOK_PORT             → WEBHOOK_PORT      (default: 3000, number)
+ *   CLICKUP_WEBHOOK_SECRET   → CLICKUP_WEBHOOK_SECRET
+ *   POLL_INTERVAL_MS         → POLL_INTERVAL_MS  (default: 300000, number)
+ *   STATUS_PUBLICADO         → STATUS_PUBLICADO  (default: 'publicado')
  */
 import 'dotenv/config';
 import { z } from 'zod';
@@ -52,6 +57,12 @@ const EnvSchema = z.object({
   GHL_USER_ID:      z.string().min(1, { message: 'GHL_USER_ID é obrigatório — obter via GET /users/?locationId=...' }),
   STATUS_A_AGENDAR: z.string().min(1).default('a agendar'),
   STATUS_AGENDADO:  z.string().min(1).default('agendado'),
+
+  // Phase 3 — servidor webhook + polling (CFG-01)
+  WEBHOOK_PORT:           z.string().default('3000').transform(Number),
+  CLICKUP_WEBHOOK_SECRET: z.string().min(1, { message: 'CLICKUP_WEBHOOK_SECRET é obrigatório' }),
+  POLL_INTERVAL_MS:       z.string().default('300000').transform(Number),
+  STATUS_PUBLICADO:       z.string().min(1).default('publicado'),
 
   // Logging
   LOG_LEVEL: z
@@ -93,6 +104,10 @@ const env = parsed.data;
  *   GHL_USER_ID: string,
  *   STATUS_A_AGENDAR: string,
  *   STATUS_AGENDADO: string,
+ *   WEBHOOK_PORT: number,
+ *   CLICKUP_WEBHOOK_SECRET: string,
+ *   POLL_INTERVAL_MS: number,
+ *   STATUS_PUBLICADO: string,
  *   LOG_LEVEL: string,
  * }>}
  */
@@ -118,5 +133,10 @@ export const config = Object.freeze({
   GHL_USER_ID:         env.GHL_USER_ID,
   STATUS_A_AGENDAR:    env.STATUS_A_AGENDAR,
   STATUS_AGENDADO:     env.STATUS_AGENDADO,
+  // Phase 3 — servidor webhook + polling (sem prefixo CU_FIELD_; passam direto)
+  WEBHOOK_PORT:           env.WEBHOOK_PORT,
+  CLICKUP_WEBHOOK_SECRET: env.CLICKUP_WEBHOOK_SECRET,
+  POLL_INTERVAL_MS:       env.POLL_INTERVAL_MS,
+  STATUS_PUBLICADO:       env.STATUS_PUBLICADO,
   LOG_LEVEL:           env.LOG_LEVEL,
 });
