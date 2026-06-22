@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: Phase 2 context gathered
-last_updated: "2026-06-22T18:25:00.594Z"
-last_activity: 2026-06-22 -- Phase 01 execution started
+status: awaiting-checkpoint
+stopped_at: Phase 02 Plan 01 Task 3 — checkpoint:human-verify (blocking-human)
+last_updated: "2026-06-22T19:00:00.000Z"
+last_activity: 2026-06-22 -- Phase 02 Plan 01 Tasks 1+2 completed; awaiting human checkpoint (Task 3)
 progress:
   total_phases: 4
   completed_phases: 1
-  total_plans: 2
+  total_plans: 5
   completed_plans: 2
   percent: 25
 ---
@@ -21,14 +21,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-22)
 
 **Core value:** Um post marcado "a agendar" no ClickUp aparece agendado no GHL para o Instagram, e quando publica o ClickUp reflete sozinho — sem cópia manual entre as ferramentas.
-**Current focus:** Phase 01 — funda-o-config-clients-logging
+**Current focus:** Phase 02 — agendamento-clickup-ghl
 
 ## Current Position
 
-Phase: 01 (funda-o-config-clients-logging) — EXECUTING
-Plan: 2 of 2
-Status: Ready to execute
-Last activity: 2026-06-22 -- Phase 01 execution started
+Phase: 02 (agendamento-clickup-ghl) — AWAITING CHECKPOINT
+Plan: 1 of 3 (partially complete — Tasks 1+2 done, awaiting Task 3 human-verify)
+Status: Paused at checkpoint:human-verify (gate=blocking-human) in Plan 02-01
+Last activity: 2026-06-22 -- Plan 02-01 Tasks 1+2 committed; smoke script prepared; waiting for human
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -93,6 +93,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T17:45:09.445Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-agendamento-clickup-ghl/02-CONTEXT.md
+Last session: 2026-06-22T19:00:00.000Z
+Stopped at: Plan 02-01 Task 3 — checkpoint:human-verify (blocking-human) — awaiting custom field UUIDs, GHL_ACCOUNT_ID, and smoke test result
+Resume file: .planning/phases/02-agendamento-clickup-ghl/02-01-PLAN.md (Task 3)
