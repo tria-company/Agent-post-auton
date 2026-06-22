@@ -713,3 +713,237 @@ test('processTask: cleanupTmp é chamado em sucesso (try/finally D-11)', async (
 
   fetchMock.mock.restore();
 });
+
+// ---------------------------------------------------------------------------
+// PLAN 03 — Task 1 (RED): Suporte a Carrossel (SCH-04)
+// ---------------------------------------------------------------------------
+
+// Constante para orderindex 1 = Carrossel
+const FORMATO_CARROSSEL_ORDERINDEX = 1;
+
+/**
+ * Helper: task elegível de Carrossel com zip de N arquivos.
+ * Formato orderindex=1 (Carrossel).
+ */
+function makeCarrosselTask(overrides = {}) {
+  return {
+    id: 'CAROUSEL001',
+    name: 'Post carrossel de teste',
+    status: { status: 'a agendar' },
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda carrossel' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/carousel.zip' },
+      { id: CF_FORMATO,         value: FORMATO_CARROSSEL_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+    ...overrides,
+  };
+}
+
+/**
+ * Helper: stub completo de fetch para um batch com 1 task de carrossel.
+ * Captura os payloads de uploadMedia e createPost para asserções.
+ *
+ * @param {object} opts
+ * @param {Buffer} opts.zipBuffer - Buffer do zip com os arquivos do carrossel
+ * @param {string[]} opts.uploadUrls - URLs a retornar de cada uploadMedia (1 por arquivo)
+ * @param {object} [opts.extraCalls] - objeto {uploads: [], createPost: null} para capturar chamadas
+ */
+function makeCarrosselFetchMock(opts) {
+  const { zipBuffer, uploadUrls, captures } = opts;
+  let uploadIdx = 0;
+
+  return async function fetchStub(url, reqOpts) {
+    const urlStr = String(url);
+
+    // getListTasks — 1 task carrossel elegível
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (reqOpts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [makeCarrosselTask()] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    // getListFields (bootstrap Formato options map)
+    if (urlStr.includes('/field') && (reqOpts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, {
+        fields: [{
+          id: CF_FORMATO,
+          name: 'Formato',
+          type: 'drop_down',
+          type_config: { options: [
+            { orderindex: 0, name: 'Reels' },
+            { orderindex: 1, name: 'Carrossel' },
+            { orderindex: 2, name: 'Stories' },
+            { orderindex: 3, name: 'Feed estático' },
+          ]},
+        }],
+      });
+    }
+
+    // MinIO: download do zip
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() {
+          return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength);
+        },
+        async json() { return {}; },
+        async text() { return ''; },
+      };
+    }
+
+    // GHL: upload de mídia (1 call por arquivo)
+    if (urlStr.includes('/medias/upload-file')) {
+      const uploadUrl = uploadUrls[uploadIdx] ?? `https://cdn.ghl.com/media-${uploadIdx}.jpg`;
+      const fileId = `FID${uploadIdx}`;
+      if (captures) captures.uploads.push({ url: uploadUrl, fileId, body: reqOpts?.body });
+      uploadIdx++;
+      return fakeResponse(200, { url: uploadUrl, fileId });
+    }
+
+    // GHL: createPost
+    if (urlStr.includes('/posts') && reqOpts?.method === 'POST') {
+      const body = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : reqOpts.body;
+      if (captures) captures.createPost = body;
+      return fakeResponse(201, {
+        success: true, statusCode: 201,
+        results: { post: { _id: 'PID_CAROUSEL' } },
+        traceId: 'trace-carousel',
+      });
+    }
+
+    // ClickUp: updateTask (status → agendado)
+    if (urlStr.includes('/task/CAROUSEL001') && reqOpts?.method === 'PUT') {
+      return fakeResponse(200, { id: 'CAROUSEL001', status: { status: 'agendado' } });
+    }
+
+    // ClickUp: setCustomField (CF_GHL_POST_ID)
+    if (urlStr.includes(`/task/CAROUSEL001/field/`) && reqOpts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// TEST 9: Carrossel — 3 arquivos, 3 uploadMedia, 1 createPost type='post', media[3] em ordem
+// ---------------------------------------------------------------------------
+
+test('runSchedulerBatch (carrossel): 3 arquivos → 3 uploadMedia + 1 createPost type=post com media[3] em ordem numérica', async (t) => {
+  // Zip com 3 arquivos nomeados numericamente (ordem deliberadamente embaralhada no zip
+  // para confirmar que a ordenação numérica do pipeline preserva 1→2→3)
+  const zipBuffer = makeZipBuffer([
+    { name: '2.jpg', content: 'img2' },
+    { name: '3.jpg', content: 'img3' },
+    { name: '1.jpg', content: 'img1' },
+  ]);
+
+  const uploadUrls = [
+    'https://cdn.ghl.com/carousel-1.jpg',
+    'https://cdn.ghl.com/carousel-2.jpg',
+    'https://cdn.ghl.com/carousel-3.jpg',
+  ];
+
+  const captures = { uploads: [], createPost: null };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', makeCarrosselFetchMock({ zipBuffer, uploadUrls, captures }));
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  // 3 uploads devem ter ocorrido
+  assert.strictEqual(captures.uploads.length, 3, 'deve chamar uploadMedia 3 vezes para 3 arquivos do zip');
+
+  // createPost deve ter sido chamado 1 vez
+  assert.ok(captures.createPost !== null, 'createPost deve ter sido chamado exatamente 1 vez');
+
+  // type DEVE ser 'post' — NUNCA 'carousel' (Pitfall 1/A1)
+  assert.strictEqual(captures.createPost.type, 'post', 'tipo deve ser "post" (NUNCA "carousel") para Carrossel — Pitfall 1/A1');
+
+  // media[] deve ter 3 itens
+  assert.strictEqual(captures.createPost.media.length, 3, 'media[] deve ter 3 itens (todos os arquivos)');
+
+  // Ordem numérica: media[0] deve corresponder ao arquivo 1.jpg, media[1] ao 2.jpg, etc.
+  // Como uploadUrls[0] é retornado na 1ª chamada (1.jpg — primeira na ordem numérica após sort):
+  assert.strictEqual(captures.createPost.media[0].url, uploadUrls[0], 'media[0].url deve ser o 1.jpg (primeiro numericamente)');
+  assert.strictEqual(captures.createPost.media[1].url, uploadUrls[1], 'media[1].url deve ser o 2.jpg');
+  assert.strictEqual(captures.createPost.media[2].url, uploadUrls[2], 'media[2].url deve ser o 3.jpg');
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 10: Carrossel — nenhum payload usa type='carousel'
+// ---------------------------------------------------------------------------
+
+test('mapFormato: Carrossel → {ghlType: "post", mediaCount: "multiple"} — nunca type="carousel"', async () => {
+  const { mapFormato } = await import('../src/scheduler/pipeline.js');
+  const result = mapFormato('Carrossel');
+  assert.strictEqual(result.ghlType, 'post', 'ghlType deve ser "post" (não "carousel") — Pitfall 1');
+  assert.strictEqual(result.mediaCount, 'multiple', 'mediaCount deve ser "multiple"');
+});
+
+// ---------------------------------------------------------------------------
+// TEST 11: Reels/Feed single-media — regressão (Plano 02 deve permanecer verde)
+// ---------------------------------------------------------------------------
+
+test('runSchedulerBatch (regressão Feed estático): mídia única → 1 uploadMedia + media[1] no payload', async (t) => {
+  const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+  let uploadCount = 0;
+  let capturedPayload = null;
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [makeEligibleTask()] }); // Feed estático
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    if (urlStr.includes('/medias/upload-file')) {
+      uploadCount++;
+      return fakeResponse(200, { url: 'https://cdn.ghl.com/single.jpg', fileId: 'FSINGLE' });
+    }
+
+    if (urlStr.includes('/posts') && opts?.method === 'POST') {
+      capturedPayload = typeof opts.body === 'string' ? JSON.parse(opts.body) : opts.body;
+      return fakeResponse(201, { results: { post: { _id: 'PID_SINGLE' } } });
+    }
+
+    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') return fakeResponse(200, {});
+    if (urlStr.includes(`/task/TASK001/field/${CF_GHL_POST_ID}`) && opts?.method === 'POST') return fakeResponse(200, {});
+
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    return fakeResponse(404, {});
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(uploadCount, 1, 'Feed estático: exatamente 1 uploadMedia (mídia única)');
+  assert.ok(capturedPayload, 'createPost deve ter sido chamado');
+  assert.strictEqual(capturedPayload.type, 'post', 'Feed estático: type deve ser "post"');
+  assert.strictEqual(capturedPayload.media.length, 1, 'Feed estático: media[] deve ter 1 item');
+
+  fetchMock.mock.restore();
+});
