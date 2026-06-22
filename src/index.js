@@ -32,7 +32,7 @@ export async function boot() {
   // Passo 1: Autenticar no ClickUp e ler a lista real
   log.info({ step: 'clickup.getList', listId: config.CLICKUP_LIST_ID }, 'Autenticando no ClickUp...');
   const list = await clickup.getList(config.CLICKUP_LIST_ID);
-  log.info({ step: 'clickup.getList', listName: list.name }, 'ClickUp autenticado');
+  log.info({ step: 'clickup.getList', listName: list?.name }, 'ClickUp autenticado');
 
   // Passo 2: Autenticar no GHL e listar contas do Social Planner
   log.info({ step: 'ghl.listAccounts' }, 'Autenticando no GHL...');
