@@ -54,7 +54,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 **Wave 1**
 
-  - [~] 02-01-PLAN.md — Wave 0 (setup): custom fields no ClickUp + config das 6 vars (CFG-01) + adm-zip + smoke empírico upload/createPost (SCH-01,03,04,05,06,07) — Tasks 1+2 done; awaiting checkpoint (human-verify: ClickUp custom fields + .env + smoke)
+  - [x] 02-01-PLAN.md — Wave 0 (setup): custom fields no ClickUp + config das 6 vars (CFG-01) + adm-zip + smoke empírico upload/createPost (SCH-01,03,04,05,06,07) — COMPLETE (2026-06-22): A1/A2/A4/A7 confirmed; 3 critical findings documented (userId required, results.post._id, token scopes)
   - [ ] 02-02-PLAN.md — Wave 1 (slice principal): detecção+idempotência+resolução com fallback+download/unzip seguro+upload GHL+createPost mídia única+write-back de sucesso (SCH-01..06)
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -99,6 +99,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
-| 2. Agendamento ClickUp → GHL | 0/3 | In progress (02-01 awaiting checkpoint) | - |
+| 2. Agendamento ClickUp → GHL | 1/3 | In progress (02-02 Wave 1 next) | - |
 | 3. Sincronização GHL → ClickUp (Webhook) | 0/TBD | Not started | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |
