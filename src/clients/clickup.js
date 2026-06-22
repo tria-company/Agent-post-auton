@@ -55,11 +55,19 @@ async function request(method, path, body) {
         });
 
         // 429 → rate limited pelo ClickUp; honra Retry-After / X-RateLimit-Reset
+        // Retry-After é delta-segundos; X-RateLimit-Reset é epoch Unix (segundos desde 1970)
         if (res.status === 429) {
-          const retryAfter =
-            res.headers.get('Retry-After') ||
-            res.headers.get('X-RateLimit-Reset');
-          const waitMs = retryAfter ? Number(retryAfter) * 1000 : 5_000;
+          const retryAfter = res.headers.get('Retry-After');
+          const resetEpoch = res.headers.get('X-RateLimit-Reset');
+          let waitMs;
+          if (retryAfter) {
+            waitMs = Number(retryAfter) * 1000;
+          } else if (resetEpoch) {
+            waitMs = Math.max(0, Number(resetEpoch) * 1000 - Date.now());
+          } else {
+            waitMs = 5_000;
+          }
+          waitMs = Math.min(waitMs, 60_000); // nunca esperar mais de 60s
           log.warn({ status: 429, waitMs, attempt: attemptNumber }, 'ClickUp rate limit — aguardando');
           // Aguarda antes de retentar (p-retry vai esperar minTimeout+factor normalmente,
           // mas aqui adicionamos o delay real do header)
