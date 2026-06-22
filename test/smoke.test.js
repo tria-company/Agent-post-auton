@@ -68,8 +68,12 @@ test('ghl.listAccounts retorna contas incluindo auton.app', async (t) => {
   const result = await ghl.listAccounts();
   assert.ok(result, 'listAccounts deve retornar um objeto');
 
-  // A resposta pode ter as contas em result.accounts ou result diretamente
-  const accounts = result?.accounts ?? (Array.isArray(result) ? result : []);
+  // A API GHL retorna: { success, results: { accounts: [...], groups: [] } }
+  // Fallback para result.accounts ou array direto para resiliência
+  const accounts =
+    result?.results?.accounts ??
+    result?.accounts ??
+    (Array.isArray(result) ? result : []);
   assert.ok(Array.isArray(accounts) && accounts.length > 0, 'Deve retornar ao menos uma conta');
 
   const hasAuton = accounts.some(
