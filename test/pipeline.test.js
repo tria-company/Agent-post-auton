@@ -947,3 +947,536 @@ test('runSchedulerBatch (regressão Feed estático): mídia única → 1 uploadM
 
   fetchMock.mock.restore();
 });
+
+// ---------------------------------------------------------------------------
+// PLAN 03 — Task 2 (RED): Validação completa + write-back Erro de publicação + isolamento (SCH-07)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: cria stub de fetch para um batch com 1 task inválida.
+ * Captura a chamada a setCustomField(CF_ERRO_PUBLICACAO) e controla se ghl.uploadMedia/createPost são chamados.
+ *
+ * @param {object} task - task customizada (com o campo inválido)
+ * @param {object} captures - { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false }
+ * @param {object} [opts] - opções extras (ex: mockMinIO para controlar falha de download)
+ */
+function makeValidationFetchMock(task, captures, opts = {}) {
+  return async function fetchStub(url, reqOpts) {
+    const urlStr = String(url);
+
+    // getListTasks — retorna a task inválida dada
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (reqOpts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [task] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    // getListFields
+    if (urlStr.includes('/field') && (reqOpts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, {
+        fields: [{
+          id: CF_FORMATO,
+          name: 'Formato',
+          type: 'drop_down',
+          type_config: { options: [
+            { orderindex: 0, name: 'Reels' },
+            { orderindex: 1, name: 'Carrossel' },
+            { orderindex: 2, name: 'Stories' },
+            { orderindex: 3, name: 'Feed estático' },
+          ]},
+        }],
+      });
+    }
+
+    // getTask (fallback para task mãe)
+    if (urlStr.includes('/task/MAE_') && (reqOpts?.method ?? 'GET') === 'GET') {
+      const taskId = urlStr.match(/\/task\/(MAE_[^/?\s]+)/)?.[1] ?? 'MAE_UNKNOWN';
+      return fakeResponse(200, {
+        id: taskId,
+        custom_fields: [
+          { id: CF_LEGENDA,      value: opts.maeLegenda ?? null },
+          { id: CF_LINK_DO_POST, value: opts.maeLink ?? null },
+        ],
+      });
+    }
+
+    // MinIO download
+    if (urlStr.includes('minio.example.com')) {
+      if (opts.minioFails) {
+        return fakeResponse(500, { error: 'MinIO error' });
+      }
+      const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    // GHL upload — NÃO deve ser chamado em casos de validação inválida
+    if (urlStr.includes('/medias/upload-file')) {
+      captures.uploadCalled = true;
+      return fakeResponse(200, { url: 'https://cdn.ghl.com/test.jpg', fileId: 'FX' });
+    }
+
+    // GHL createPost — NÃO deve ser chamado em casos de validação inválida
+    if (urlStr.includes('/posts') && reqOpts?.method === 'POST') {
+      captures.createPostCalled = true;
+      return fakeResponse(201, { results: { post: { _id: 'PID_SHOULD_NOT_EXIST' } } });
+    }
+
+    // ClickUp updateTask — NÃO deve ser chamado em casos de falha (status permanece STATUS_A_AGENDAR)
+    if (urlStr.includes('/task/') && reqOpts?.method === 'PUT') {
+      captures.updateTaskCalled = true;
+      return fakeResponse(200, {});
+    }
+
+    // ClickUp setCustomField — capturar CF_ERRO_PUBLICACAO
+    if (urlStr.match(/\/task\/[^/]+\/field\//) && reqOpts?.method === 'POST') {
+      const body = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : (reqOpts.body ?? {});
+      captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// TEST 12: Formato vazio → não agenda, write-back 'Formato vazio', status inalterado
+// ---------------------------------------------------------------------------
+
+test('validação: Formato vazio → não agenda, CF_ERRO_PUBLICACAO = "Formato vazio", status inalterado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+
+  // Task com Formato=null (campo não encontrado no mapa) → formatoLabel=null → lança 'Formato vazio'
+  const task = {
+    id: 'INVALID001',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip.zip' },
+      { id: CF_FORMATO,         value: 999 }, // orderindex não mapeado → formatoLabel=null
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', makeValidationFetchMock(task, captures));
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
+  assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado — status permanece a agendar');
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  assert.ok(
+    captures.errMsg.includes('Formato') || captures.errMsg.includes('vazio'),
+    `Mensagem de erro deve mencionar "Formato" ou "vazio". Recebido: "${captures.errMsg}"`,
+  );
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 13: Formato='Stories' → não agenda, write-back mensagem sobre Stories
+// ---------------------------------------------------------------------------
+
+test('validação: Formato=Stories → não agenda, CF_ERRO_PUBLICACAO menciona Stories, status inalterado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+
+  // orderindex 2 → 'Stories' → inválido (D-13)
+  const task = {
+    id: 'INVALID002',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip.zip' },
+      { id: CF_FORMATO,         value: 2 }, // Stories = orderindex 2
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', makeValidationFetchMock(task, captures));
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
+  assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  assert.ok(
+    captures.errMsg.includes('Stories') || captures.errMsg.includes('suportado'),
+    `Mensagem deve mencionar "Stories" ou "suportado". Recebido: "${captures.errMsg}"`,
+  );
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 14: Data no passado → não agenda, write-back 'Data no passado'
+// ---------------------------------------------------------------------------
+
+test('validação: Data no passado → não agenda, CF_ERRO_PUBLICACAO = "Data no passado", status inalterado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+  const PAST_EPOCH_MS = String(Date.now() - 7 * 24 * 60 * 60 * 1000); // 7 dias atrás
+
+  const task = {
+    id: 'INVALID003',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: PAST_EPOCH_MS },
+    ],
+  };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', makeValidationFetchMock(task, captures));
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
+  assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  assert.ok(
+    captures.errMsg.includes('passado') || captures.errMsg.includes('Data'),
+    `Mensagem deve mencionar "passado" ou "Data". Recebido: "${captures.errMsg}"`,
+  );
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 15: Legenda vazia na filha E na mãe → não agenda, write-back 'Sem legenda após fallback'
+// ---------------------------------------------------------------------------
+
+test('validação: legenda vazia na filha E na mãe → não agenda, CF_ERRO_PUBLICACAO menciona legenda', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+
+  const task = {
+    id: 'INVALID004',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: null }, // vazio → tenta fallback para mãe
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+      { id: CF_ID_TASK_MAE,     value: 'MAE_NO_LEGENDA' },
+    ],
+  };
+
+  // maeLegenda=null → fallback também vazio → deve lançar
+  const fetchMock = t.mock.method(globalThis, 'fetch', makeValidationFetchMock(task, captures, {
+    maeLegenda: null,
+    maeLink: 'https://minio.example.com/mae.zip',
+  }));
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
+  assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  // A mensagem atual menciona CF_LEGENDA como campo ausente
+  assert.ok(
+    captures.errMsg.includes('legenda') || captures.errMsg.includes('Legenda') || captures.errMsg.includes('CF_LEGENDA'),
+    `Mensagem deve mencionar legenda. Recebido: "${captures.errMsg}"`,
+  );
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 16: Link vazio na filha E na mãe → não agenda, write-back menciona mídia/link
+// ---------------------------------------------------------------------------
+
+test('validação: link vazio na filha E na mãe → não agenda, CF_ERRO_PUBLICACAO menciona mídia', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+
+  const task = {
+    id: 'INVALID005',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda ok' },
+      { id: CF_LINK_DO_POST,    value: null }, // vazio → tenta fallback para mãe
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+      { id: CF_ID_TASK_MAE,     value: 'MAE_NO_LINK' },
+    ],
+  };
+
+  // maeLink=null → fallback também vazio → deve lançar
+  const fetchMock = t.mock.method(globalThis, 'fetch', makeValidationFetchMock(task, captures, {
+    maeLegenda: 'Legenda da mãe',
+    maeLink: null,
+  }));
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
+  assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  // A mensagem menciona CF_LINK_DO_POST como campo ausente
+  assert.ok(
+    captures.errMsg.includes('link') || captures.errMsg.includes('Link') ||
+    captures.errMsg.includes('mídia') || captures.errMsg.includes('CF_LINK_DO_POST'),
+    `Mensagem deve mencionar link ou mídia. Recebido: "${captures.errMsg}"`,
+  );
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 17: Erro do GHL (createPost falha) → write-back com mensagem normalizada, sem stack trace, sem URL, sem token
+// ---------------------------------------------------------------------------
+
+test('validação: erro do GHL em createPost → CF_ERRO_PUBLICACAO com mensagem normalizada (sem stack/URL/token)', async (t) => {
+  const captures = { errMsg: null, updateTaskCalled: false };
+  const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [makeEligibleTask()] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    if (urlStr.includes('/medias/upload-file')) {
+      return fakeResponse(200, { url: 'https://cdn.ghl.com/test.jpg', fileId: 'FX' });
+    }
+
+    // GHL createPost falha com 422 e mensagem GHL normalizada
+    if (urlStr.includes('/posts') && opts?.method === 'POST') {
+      return fakeResponse(422, { message: 'userId must be a string', statusCode: 422 });
+    }
+
+    // updateTask — NÃO deve ser chamado
+    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') {
+      captures.updateTaskCalled = true;
+      return fakeResponse(200, {});
+    }
+
+    // setCustomField — capturar CF_ERRO_PUBLICACAO
+    if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
+      captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    return fakeResponse(404, {});
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado em caso de erro');
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  assert.ok(captures.errMsg.length <= 200, `Mensagem deve ter <= 200 chars. Tamanho: ${captures.errMsg.length}`);
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 18: Isolamento (D-18) — 3 tasks: 1ª falha (Formato inválido), 2ª e 3ª agendadas com sucesso
+// ---------------------------------------------------------------------------
+
+test('isolamento (D-18): falha na 1ª task não aborta o batch — 2ª e 3ª agendadas com sucesso', async (t) => {
+  const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+  const scheduledIds = [];
+  let errWritebacks = 0;
+
+  // 3 tasks: task1 tem Formato inválido (orderindex 999); task2 e task3 são válidas
+  const task1 = {
+    id: 'BATCH001',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 1' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip1.zip' },
+      { id: CF_FORMATO,         value: 999 }, // inválido — orderindex sem mapeamento
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+  const task2 = {
+    id: 'BATCH002',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 2' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip2.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+  const task3 = {
+    id: 'BATCH003',
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda 3' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/zip3.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+    ],
+  };
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    // getListTasks — retorna as 3 tasks
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [task1, task2, task3] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    // getListFields
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    // MinIO download (qualquer URL minio)
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    // GHL upload
+    if (urlStr.includes('/medias/upload-file')) {
+      return fakeResponse(200, { url: 'https://cdn.ghl.com/test.jpg', fileId: 'FX' });
+    }
+
+    // GHL createPost
+    if (urlStr.includes('/posts') && opts?.method === 'POST') {
+      return fakeResponse(201, { results: { post: { _id: `PID_BATCH_${Date.now()}` } } });
+    }
+
+    // ClickUp updateTask (sucesso para tasks 2 e 3)
+    if (urlStr.match(/\/task\/(BATCH002|BATCH003)/) && opts?.method === 'PUT') {
+      const taskId = urlStr.match(/\/task\/(BATCH\d+)/)?.[1];
+      scheduledIds.push(taskId);
+      return fakeResponse(200, {});
+    }
+
+    // ClickUp setCustomField — pode ser CF_GHL_POST_ID (sucesso) ou CF_ERRO_PUBLICACAO (falha)
+    if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+      // Se a URL contém BATCH001 → é o write-back de erro da 1ª task
+      if (urlStr.includes('BATCH001')) {
+        errWritebacks++;
+      }
+      return fakeResponse(200, {});
+    }
+
+    return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  // 1ª task deve ter recebido write-back de erro
+  assert.strictEqual(errWritebacks, 1, 'BATCH001 deve ter recebido exatamente 1 write-back de CF_ERRO_PUBLICACAO');
+
+  // 2ª e 3ª tasks devem ter sido agendadas com sucesso
+  assert.ok(scheduledIds.includes('BATCH002'), 'BATCH002 deve ter sido agendada (updateTask chamado)');
+  assert.ok(scheduledIds.includes('BATCH003'), 'BATCH003 deve ter sido agendada (updateTask chamado)');
+  assert.strictEqual(scheduledIds.length, 2, 'exatamente 2 tasks devem ter sido agendadas');
+
+  fetchMock.mock.restore();
+});
+
+// ---------------------------------------------------------------------------
+// TEST 19: Segurança (D-15) — CF_ERRO_PUBLICACAO não contém http, pit-, pk_, truncado <= 200
+// ---------------------------------------------------------------------------
+
+test('segurança (D-15): CF_ERRO_PUBLICACAO não contém http/pit-/pk_ e é truncado a 200 chars', async (t) => {
+  // Simular um erro que tentaria vazar uma URL ou token na mensagem
+  const captures = { errMsg: null };
+  const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      if (Number(u.searchParams.get('page') ?? '0') === 0) {
+        return fakeResponse(200, { tasks: [makeEligibleTask()] });
+      }
+      return fakeResponse(200, { tasks: [] });
+    }
+
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' },
+        { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ]}}] });
+    }
+
+    if (urlStr.includes('minio.example.com')) {
+      return {
+        status: 200, ok: true, headers: { get: () => null },
+        async arrayBuffer() { return zipBuffer.buffer.slice(zipBuffer.byteOffset, zipBuffer.byteOffset + zipBuffer.byteLength); },
+      };
+    }
+
+    if (urlStr.includes('/medias/upload-file')) {
+      return fakeResponse(200, { url: 'https://cdn.ghl.com/test.jpg', fileId: 'FX' });
+    }
+
+    // GHL createPost falha com mensagem que conteria URL + token se não filtrada
+    if (urlStr.includes('/posts') && opts?.method === 'POST') {
+      // Resposta de erro "natural" do GHL — mensagem já normalizada pelo AppError
+      return fakeResponse(500, {
+        message: 'Internal Server Error',
+        statusCode: 500,
+      });
+    }
+
+    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') {
+      return fakeResponse(200, {});
+    }
+
+    if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
+      captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    return fakeResponse(404, {});
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
+  assert.ok(captures.errMsg.length <= 200, `Mensagem deve ter <= 200 chars. Tamanho: ${captures.errMsg.length}`);
+  assert.ok(!captures.errMsg.includes('http'), `Mensagem NÃO deve conter 'http' (URL). Recebido: "${captures.errMsg}"`);
+  assert.ok(!captures.errMsg.includes('pit-'), `Mensagem NÃO deve conter 'pit-' (token GHL). Recebido: "${captures.errMsg}"`);
+  assert.ok(!captures.errMsg.includes('pk_'),  `Mensagem NÃO deve conter 'pk_' (token ClickUp). Recebido: "${captures.errMsg}"`);
+
+  fetchMock.mock.restore();
+});
