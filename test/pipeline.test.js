@@ -71,12 +71,13 @@ const FORMATO_FEED_ESTATICO_ORDERINDEX = 3; // posição no dropdown
 
 // ---------------------------------------------------------------------------
 // Task elegível de mídia única (Feed estático) — stub base
+// Status = 'agendado': o humano já moveu para 'agendado', o pipeline detecta e processa.
 // ---------------------------------------------------------------------------
 function makeEligibleTask(overrides = {}) {
   return {
     id: 'TASK001',
     name: 'Post de teste',
-    status: { status: 'a agendar' },
+    status: { status: 'agendado' },
     custom_fields: [
       { id: CF_GHL_POST_ID,     value: null },          // vazio → elegível
       { id: CF_LEGENDA,         value: 'Legenda teste' },
@@ -136,11 +137,56 @@ test('clickup.getListTasks: monta statuses[]= na query string', async (t) => {
 });
 
 // ---------------------------------------------------------------------------
+// TEST 1b: Detecção usa STATUS_AGENDADO — tasks 'a agendar' são ignoradas pelo batch
+// ---------------------------------------------------------------------------
+
+test('runSchedulerBatch: getListTasks é chamado com STATUS_AGENDADO, NÃO com STATUS_A_AGENDAR', async (t) => {
+  // O batch deve passar config.STATUS_AGENDADO para getListTasks.
+  // Verifica: a URL de getListTasks contém 'agendado', não 'a+agendar' nem 'a%20agendar'.
+  let capturedStatusFilter = null;
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+
+    // getListTasks → capturar o valor de statuses[] na query string
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const u = new URL(urlStr);
+      capturedStatusFilter = u.searchParams.get('statuses[]');
+      return fakeResponse(200, { tasks: [] }); // encerra imediatamente
+    }
+
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [] });
+    }
+
+    return fakeResponse(404, {});
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+
+  fetchMock.mock.restore();
+
+  assert.ok(
+    capturedStatusFilter !== null,
+    'getListTasks deve ter sido chamado',
+  );
+  assert.strictEqual(
+    capturedStatusFilter,
+    'agendado',
+    `getListTasks deve filtrar por 'agendado', não por '${capturedStatusFilter}'`,
+  );
+});
+
+// ---------------------------------------------------------------------------
 // TEST 2: E2E happy-path (RED — vai falhar até Task 3 criar pipeline.js)
 // ---------------------------------------------------------------------------
 
-test('runSchedulerBatch: happy-path de mídia única → updateTask(agendado) + setCustomField(GHL_POST_ID)', async (t) => {
-  // ---- Stubs de fetch por URL ----
+test('runSchedulerBatch: happy-path de mídia única → SEM updateTask de status + setCustomField(GHL_POST_ID) + addComment de sucesso', async (t) => {
+  // Nova state machine (UAT decision):
+  //   - Detecção: STATUS_AGENDADO (o humano já moveu)
+  //   - Sucesso: NÃO muda status; grava CF_GHL_POST_ID + addComment("✅ Agendado no GHL...")
+  //   - Ordem: createPost → setCustomField(GHL Post ID) → addComment
   const calls = [];
 
   const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
@@ -194,9 +240,9 @@ test('runSchedulerBatch: happy-path de mídia única → updateTask(agendado) + 
       });
     }
 
-    // ClickUp: updateTask (status → agendado)
+    // ClickUp: updateTask — NÃO deve ser chamado no path de sucesso
     if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') {
-      return fakeResponse(200, { id: 'TASK001', status: { status: 'agendado' } });
+      assert.fail('updateTask NÃO deve ser chamado no path de sucesso — task já está agendado');
     }
 
     // ClickUp: setCustomField (CF_GHL_POST_ID)
@@ -204,10 +250,13 @@ test('runSchedulerBatch: happy-path de mídia única → updateTask(agendado) + 
       return fakeResponse(200, {});
     }
 
+    // ClickUp: addComment (comentário de sucesso)
+    if (urlStr.includes('/task/TASK001/comment') && opts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
     // downloadAndExtract: download do zip do MinIO
-    // O pipeline chama fetch diretamente para baixar o zip
     if (urlStr.includes('minio.example.com')) {
-      // Zip válido com 1 arquivo (1.jpg) — magic bytes PK\x03\x04 obrigatórios
       const validZipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'fake-image-data' }]);
       return {
         status: 200,
@@ -228,28 +277,23 @@ test('runSchedulerBatch: happy-path de mídia única → updateTask(agendado) + 
     return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
   });
 
-  // Import dinâmico do pipeline (ainda não existe → vai lançar MODULE_NOT_FOUND em RED)
   let runSchedulerBatch;
   try {
     const mod = await import('../src/scheduler/pipeline.js');
     runSchedulerBatch = mod.runSchedulerBatch;
   } catch (err) {
-    // RED phase: módulo não existe ainda — teste confirma ausência e falha intencionalmente
     fetchMock.mock.restore();
     assert.fail(`[RED] src/scheduler/pipeline.js não existe ainda — isso é esperado na fase RED. Erro: ${err.message}`);
     return;
   }
 
-  // Executar batch
   await runSchedulerBatch();
 
-  // Verificar que updateTask foi chamado com status 'agendado'
+  // Verificar que updateTask NÃO foi chamado (task já está agendado — status não muda no sucesso)
   const updateCall = calls.find(
     (c) => c.url.includes('/task/TASK001') && c.method === 'PUT',
   );
-  assert.ok(updateCall, 'clickup.updateTask deve ter sido chamado para a task TASK001');
-  const updateBody = typeof updateCall.body === 'string' ? JSON.parse(updateCall.body) : (updateCall.body ?? {});
-  assert.strictEqual(updateBody.status, 'agendado', 'status deve ser "agendado"');
+  assert.strictEqual(updateCall, undefined, 'clickup.updateTask NÃO deve ser chamado no path de sucesso');
 
   // Verificar que setCustomField foi chamado com CF_GHL_POST_ID = 'PID123'
   const setFieldCall = calls.find(
@@ -259,12 +303,25 @@ test('runSchedulerBatch: happy-path de mídia única → updateTask(agendado) + 
   const fieldBody = typeof setFieldCall.body === 'string' ? JSON.parse(setFieldCall.body) : (setFieldCall.body ?? {});
   assert.strictEqual(fieldBody.value, 'PID123', 'GHL Post ID gravado deve ser PID123 (de results.post._id)');
 
-  // Verificar ordem: createPost antes de updateTask (Pitfall anti-pattern)
+  // Verificar que addComment de sucesso foi chamado com o post id
+  const commentCall = calls.find(
+    (c) => c.url.includes('/task/TASK001/comment') && c.method === 'POST',
+  );
+  assert.ok(commentCall, 'clickup.addComment deve ter sido chamado no path de sucesso');
+  const commentBody = typeof commentCall.body === 'string' ? JSON.parse(commentCall.body) : (commentCall.body ?? {});
+  assert.ok(
+    commentBody.comment_text?.includes('PID123'),
+    `Comentário de sucesso deve conter o post id. Recebido: "${commentBody.comment_text}"`,
+  );
+
+  // Verificar ordem: createPost → setCustomField → addComment
   const createPostCall = calls.find((c) => c.url.includes('/posts') && c.method === 'POST');
   assert.ok(createPostCall, 'ghl.createPost deve ter sido chamado');
   const createPostIdx = calls.indexOf(createPostCall);
-  const updateIdx = calls.indexOf(updateCall);
-  assert.ok(createPostIdx < updateIdx, 'createPost deve ocorrer ANTES de updateTask (write-back de sucesso)');
+  const setFieldIdx   = calls.indexOf(setFieldCall);
+  const commentIdx    = calls.indexOf(commentCall);
+  assert.ok(createPostIdx < setFieldIdx, 'createPost deve ocorrer ANTES de setCustomField');
+  assert.ok(setFieldIdx < commentIdx, 'setCustomField deve ocorrer ANTES de addComment');
 
   fetchMock.mock.restore();
 });
@@ -273,22 +330,24 @@ test('runSchedulerBatch: happy-path de mídia única → updateTask(agendado) + 
 // TEST 3: Idempotência (RED — vai falhar até Task 3 criar pipeline.js)
 // ---------------------------------------------------------------------------
 
-test('runSchedulerBatch: task com CF_GHL_POST_ID preenchido é PULADA (idempotência SCH-06)', async (t) => {
+test('runSchedulerBatch: task em agendado COM CF_GHL_POST_ID preenchido é PULADA (idempotência SCH-06)', async (t) => {
+  // Task no status agendado que JÁ tem GHL Post ID → foi agendada anteriormente → pular
   let uploadCalled = false;
   let createPostCalled = false;
 
   const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
     const urlStr = String(url);
 
-    // getListTasks — task com GHL Post ID JÁ preenchido
+    // getListTasks → retorna task agendado com GHL Post ID já preenchido
     if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
       const u = new URL(urlStr);
       const page = Number(u.searchParams.get('page') ?? '0');
       if (page === 0) {
         return fakeResponse(200, {
           tasks: [makeEligibleTask({
+            status: { status: 'agendado' },
             custom_fields: [
-              { id: CF_GHL_POST_ID,     value: 'EXISTING_POST_ID' }, // já preenchido!
+              { id: CF_GHL_POST_ID,     value: 'EXISTING_POST_ID' }, // já preenchido → pular
               { id: CF_LEGENDA,         value: 'Legenda' },
               { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/media.zip' },
               { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
@@ -528,8 +587,8 @@ test('pipeline: scheduleDate é new Date(Number(epochMs)).toISOString() no paylo
       return fakeResponse(201, { results: { post: { _id: 'PID_DATE_TEST' } } });
     }
 
-    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') return fakeResponse(200, {});
     if (urlStr.includes(`/task/TASK001/field/${CF_GHL_POST_ID}`) && opts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/TASK001/comment') && opts?.method === 'POST') return fakeResponse(200, {});
 
     if (urlStr.includes('minio.example.com')) {
       const validZip = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
@@ -616,8 +675,8 @@ test('mapFormato: payload.accountIds = [config.GHL_ACCOUNT_ID] e type correto no
       return fakeResponse(201, { results: { post: { _id: 'PID_REELS' } } });
     }
 
-    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') return fakeResponse(200, {});
     if (urlStr.includes(`/task/TASK001/field/${CF_GHL_POST_ID}`) && opts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/TASK001/comment') && opts?.method === 'POST') return fakeResponse(200, {});
 
     if (urlStr.includes('minio.example.com')) {
       const validZip = makeZipBuffer([{ name: '1.mp4', content: 'video' }]);
@@ -689,8 +748,8 @@ test('processTask: cleanupTmp é chamado em sucesso (try/finally D-11)', async (
       return fakeResponse(201, { results: { post: { _id: 'PID_CLEANUP' } } });
     }
 
-    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') return fakeResponse(200, {});
     if (urlStr.includes(`/task/TASK001/field/${CF_GHL_POST_ID}`) && opts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/TASK001/comment') && opts?.method === 'POST') return fakeResponse(200, {});
 
     if (urlStr.includes('minio.example.com')) {
       const validZip = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
@@ -729,7 +788,7 @@ function makeCarrosselTask(overrides = {}) {
   return {
     id: 'CAROUSEL001',
     name: 'Post carrossel de teste',
-    status: { status: 'a agendar' },
+    status: { status: 'agendado' }, // humano moveu para agendado → gatilho de agendamento
     custom_fields: [
       { id: CF_GHL_POST_ID,     value: null },
       { id: CF_LEGENDA,         value: 'Legenda carrossel' },
@@ -815,13 +874,19 @@ function makeCarrosselFetchMock(opts) {
       });
     }
 
-    // ClickUp: updateTask (status → agendado)
+    // ClickUp: updateTask — NÃO deve ser chamado no path de sucesso
     if (urlStr.includes('/task/CAROUSEL001') && reqOpts?.method === 'PUT') {
-      return fakeResponse(200, { id: 'CAROUSEL001', status: { status: 'agendado' } });
+      throw new Error('updateTask NÃO deve ser chamado no path de sucesso para carrossel');
     }
 
     // ClickUp: setCustomField (CF_GHL_POST_ID)
     if (urlStr.includes(`/task/CAROUSEL001/field/`) && reqOpts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
+    // ClickUp: addComment (sucesso)
+    if (urlStr.includes('/task/CAROUSEL001/comment') && reqOpts?.method === 'POST') {
+      if (captures) captures.successComment = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : reqOpts.body;
       return fakeResponse(200, {});
     }
 
@@ -833,7 +898,7 @@ function makeCarrosselFetchMock(opts) {
 // TEST 9: Carrossel — 3 arquivos, 3 uploadMedia, 1 createPost type='post', media[3] em ordem
 // ---------------------------------------------------------------------------
 
-test('runSchedulerBatch (carrossel): 3 arquivos → 3 uploadMedia + 1 createPost type=post com media[3] em ordem numérica', async (t) => {
+test('runSchedulerBatch (carrossel): 3 arquivos → 3 uploadMedia + 1 createPost type=post com media[3] em ordem numérica + addComment sucesso', async (t) => {
   // Zip com 3 arquivos nomeados numericamente (ordem deliberadamente embaralhada no zip
   // para confirmar que a ordenação numérica do pipeline preserva 1→2→3)
   const zipBuffer = makeZipBuffer([
@@ -848,7 +913,7 @@ test('runSchedulerBatch (carrossel): 3 arquivos → 3 uploadMedia + 1 createPost
     'https://cdn.ghl.com/carousel-3.jpg',
   ];
 
-  const captures = { uploads: [], createPost: null };
+  const captures = { uploads: [], createPost: null, successComment: null };
 
   const fetchMock = t.mock.method(globalThis, 'fetch', makeCarrosselFetchMock({ zipBuffer, uploadUrls, captures }));
 
@@ -868,10 +933,16 @@ test('runSchedulerBatch (carrossel): 3 arquivos → 3 uploadMedia + 1 createPost
   assert.strictEqual(captures.createPost.media.length, 3, 'media[] deve ter 3 itens (todos os arquivos)');
 
   // Ordem numérica: media[0] deve corresponder ao arquivo 1.jpg, media[1] ao 2.jpg, etc.
-  // Como uploadUrls[0] é retornado na 1ª chamada (1.jpg — primeira na ordem numérica após sort):
   assert.strictEqual(captures.createPost.media[0].url, uploadUrls[0], 'media[0].url deve ser o 1.jpg (primeiro numericamente)');
   assert.strictEqual(captures.createPost.media[1].url, uploadUrls[1], 'media[1].url deve ser o 2.jpg');
   assert.strictEqual(captures.createPost.media[2].url, uploadUrls[2], 'media[2].url deve ser o 3.jpg');
+
+  // addComment de sucesso deve ter sido chamado com o post id
+  assert.ok(captures.successComment !== null, 'addComment de sucesso deve ter sido chamado');
+  assert.ok(
+    captures.successComment.comment_text?.includes('PID_CAROUSEL'),
+    `Comentário deve conter o post id. Recebido: "${captures.successComment?.comment_text}"`,
+  );
 
   fetchMock.mock.restore();
 });
@@ -924,8 +995,8 @@ test('runSchedulerBatch (regressão Feed estático): mídia única → 1 uploadM
       return fakeResponse(201, { results: { post: { _id: 'PID_SINGLE' } } });
     }
 
-    if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') return fakeResponse(200, {});
     if (urlStr.includes(`/task/TASK001/field/${CF_GHL_POST_ID}`) && opts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/TASK001/comment') && opts?.method === 'POST') return fakeResponse(200, {});
 
     if (urlStr.includes('minio.example.com')) {
       return {
@@ -954,10 +1025,20 @@ test('runSchedulerBatch (regressão Feed estático): mídia única → 1 uploadM
 
 /**
  * Helper: cria stub de fetch para um batch com 1 task inválida.
- * Captura a chamada a setCustomField(CF_ERRO_PUBLICACAO) e controla se ghl.uploadMedia/createPost são chamados.
+ * Captura chamadas a setCustomField(CF_ERRO_PUBLICACAO), updateTask(STATUS_A_AGENDAR),
+ * addComment, e controla se ghl.uploadMedia/createPost são chamados.
+ *
+ * Nova state machine (falha): updateTask(STATUS_A_AGENDAR) + setCustomField(CF_ERRO_PUBLICACAO) + addComment
  *
  * @param {object} task - task customizada (com o campo inválido)
- * @param {object} captures - { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false }
+ * @param {object} captures - {
+ *   errMsg: null,
+ *   uploadCalled: false,
+ *   createPostCalled: false,
+ *   updateTaskCalled: false,
+ *   updateTaskStatus: null,   // valor de body.status passado no updateTask
+ *   commentText: null,
+ * }
  * @param {object} [opts] - opções extras (ex: mockMinIO para controlar falha de download)
  */
 function makeValidationFetchMock(task, captures, opts = {}) {
@@ -1026,9 +1107,11 @@ function makeValidationFetchMock(task, captures, opts = {}) {
       return fakeResponse(201, { results: { post: { _id: 'PID_SHOULD_NOT_EXIST' } } });
     }
 
-    // ClickUp updateTask — NÃO deve ser chamado em casos de falha (status permanece STATUS_A_AGENDAR)
+    // ClickUp updateTask — DEVE ser chamado em falha para mover de volta a STATUS_A_AGENDAR
     if (urlStr.includes('/task/') && reqOpts?.method === 'PUT') {
       captures.updateTaskCalled = true;
+      const body = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : (reqOpts.body ?? {});
+      captures.updateTaskStatus = body.status ?? null;
       return fakeResponse(200, {});
     }
 
@@ -1036,6 +1119,13 @@ function makeValidationFetchMock(task, captures, opts = {}) {
     if (urlStr.match(/\/task\/[^/]+\/field\//) && reqOpts?.method === 'POST') {
       const body = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : (reqOpts.body ?? {});
       captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    // ClickUp addComment
+    if (urlStr.match(/\/task\/[^/]+\/comment/) && reqOpts?.method === 'POST') {
+      const body = typeof reqOpts.body === 'string' ? JSON.parse(reqOpts.body) : (reqOpts.body ?? {});
+      captures.commentText = body.comment_text ?? null;
       return fakeResponse(200, {});
     }
 
@@ -1047,8 +1137,8 @@ function makeValidationFetchMock(task, captures, opts = {}) {
 // TEST 12: Formato vazio → não agenda, write-back 'Formato vazio', status inalterado
 // ---------------------------------------------------------------------------
 
-test('validação: Formato vazio → não agenda, CF_ERRO_PUBLICACAO = "Formato vazio", status inalterado', async (t) => {
-  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+test('validação: Formato vazio → não agenda, CF_ERRO_PUBLICACAO = "Formato vazio", updateTask(a agendar) chamado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false, updateTaskStatus: null, commentText: null };
 
   // Task com Formato=null (campo não encontrado no mapa) → formatoLabel=null → lança 'Formato vazio'
   const task = {
@@ -1068,7 +1158,9 @@ test('validação: Formato vazio → não agenda, CF_ERRO_PUBLICACAO = "Formato 
 
   assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
   assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
-  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado — status permanece a agendar');
+  // Em falha: updateTask deve ser chamado para mover de volta a 'a agendar'
+  assert.strictEqual(captures.updateTaskCalled, true,  'updateTask DEVE ser chamado em falha — move task de volta a a agendar');
+  assert.strictEqual(captures.updateTaskStatus, 'a agendar', 'updateTask deve ser chamado com status = "a agendar"');
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
   assert.ok(
     captures.errMsg.includes('Formato') || captures.errMsg.includes('vazio'),
@@ -1082,8 +1174,8 @@ test('validação: Formato vazio → não agenda, CF_ERRO_PUBLICACAO = "Formato 
 // TEST 13: Formato='Stories' → não agenda, write-back mensagem sobre Stories
 // ---------------------------------------------------------------------------
 
-test('validação: Formato=Stories → não agenda, CF_ERRO_PUBLICACAO menciona Stories, status inalterado', async (t) => {
-  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+test('validação: Formato=Stories → não agenda, CF_ERRO_PUBLICACAO menciona Stories, updateTask(a agendar) chamado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false, updateTaskStatus: null, commentText: null };
 
   // orderindex 2 → 'Stories' → inválido (D-13)
   const task = {
@@ -1103,7 +1195,8 @@ test('validação: Formato=Stories → não agenda, CF_ERRO_PUBLICACAO menciona 
 
   assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
   assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
-  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, true,  'updateTask DEVE ser chamado em falha');
+  assert.strictEqual(captures.updateTaskStatus, 'a agendar', 'updateTask deve ser chamado com status = "a agendar"');
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
   assert.ok(
     captures.errMsg.includes('Stories') || captures.errMsg.includes('suportado'),
@@ -1138,7 +1231,8 @@ test('validação: Data no passado → não agenda, CF_ERRO_PUBLICACAO = "Data n
 
   assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
   assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
-  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, true,  'updateTask DEVE ser chamado em falha — move task de volta a a agendar');
+  assert.strictEqual(captures.updateTaskStatus, 'a agendar', 'updateTask deve ser chamado com status = "a agendar"');
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
   assert.ok(
     captures.errMsg.includes('passado') || captures.errMsg.includes('Data'),
@@ -1152,8 +1246,8 @@ test('validação: Data no passado → não agenda, CF_ERRO_PUBLICACAO = "Data n
 // TEST 15: Legenda vazia na filha E na mãe → não agenda, write-back 'Sem legenda após fallback'
 // ---------------------------------------------------------------------------
 
-test('validação: legenda vazia na filha E na mãe → não agenda, CF_ERRO_PUBLICACAO menciona legenda', async (t) => {
-  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+test('validação: legenda vazia na filha E na mãe → não agenda, CF_ERRO_PUBLICACAO menciona legenda, updateTask(a agendar) chamado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false, updateTaskStatus: null, commentText: null };
 
   const task = {
     id: 'INVALID004',
@@ -1177,7 +1271,8 @@ test('validação: legenda vazia na filha E na mãe → não agenda, CF_ERRO_PUB
 
   assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
   assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
-  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, true,  'updateTask DEVE ser chamado em falha — move task de volta a a agendar');
+  assert.strictEqual(captures.updateTaskStatus, 'a agendar', 'updateTask deve ser chamado com status = "a agendar"');
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
   // A mensagem atual menciona CF_LEGENDA como campo ausente
   assert.ok(
@@ -1192,8 +1287,8 @@ test('validação: legenda vazia na filha E na mãe → não agenda, CF_ERRO_PUB
 // TEST 16: Link vazio na filha E na mãe → não agenda, write-back menciona mídia/link
 // ---------------------------------------------------------------------------
 
-test('validação: link vazio na filha E na mãe → não agenda, CF_ERRO_PUBLICACAO menciona mídia', async (t) => {
-  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false };
+test('validação: link vazio na filha E na mãe → não agenda, CF_ERRO_PUBLICACAO menciona mídia, updateTask(a agendar) chamado', async (t) => {
+  const captures = { errMsg: null, uploadCalled: false, createPostCalled: false, updateTaskCalled: false, updateTaskStatus: null, commentText: null };
 
   const task = {
     id: 'INVALID005',
@@ -1217,7 +1312,8 @@ test('validação: link vazio na filha E na mãe → não agenda, CF_ERRO_PUBLIC
 
   assert.strictEqual(captures.uploadCalled,     false, 'uploadMedia NÃO deve ser chamado');
   assert.strictEqual(captures.createPostCalled, false, 'createPost NÃO deve ser chamado');
-  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado');
+  assert.strictEqual(captures.updateTaskCalled, true,  'updateTask DEVE ser chamado em falha');
+  assert.strictEqual(captures.updateTaskStatus, 'a agendar', 'updateTask deve ser chamado com status = "a agendar"');
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
   // A mensagem menciona CF_LINK_DO_POST como campo ausente
   assert.ok(
@@ -1233,8 +1329,8 @@ test('validação: link vazio na filha E na mãe → não agenda, CF_ERRO_PUBLIC
 // TEST 17: Erro do GHL (createPost falha) → write-back com mensagem normalizada, sem stack trace, sem URL, sem token
 // ---------------------------------------------------------------------------
 
-test('validação: erro do GHL em createPost → CF_ERRO_PUBLICACAO com mensagem normalizada (sem stack/URL/token)', async (t) => {
-  const captures = { errMsg: null, updateTaskCalled: false };
+test('validação: erro do GHL em createPost → CF_ERRO_PUBLICACAO com mensagem normalizada, updateTask(a agendar) chamado', async (t) => {
+  const captures = { errMsg: null, updateTaskCalled: false, updateTaskStatus: null };
   const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
 
   const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
@@ -1271,9 +1367,11 @@ test('validação: erro do GHL em createPost → CF_ERRO_PUBLICACAO com mensagem
       return fakeResponse(422, { message: 'userId must be a string', statusCode: 422 });
     }
 
-    // updateTask — NÃO deve ser chamado
+    // updateTask — DEVE ser chamado para mover de volta a STATUS_A_AGENDAR
     if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') {
       captures.updateTaskCalled = true;
+      const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
+      captures.updateTaskStatus = body.status ?? null;
       return fakeResponse(200, {});
     }
 
@@ -1284,13 +1382,20 @@ test('validação: erro do GHL em createPost → CF_ERRO_PUBLICACAO com mensagem
       return fakeResponse(200, {});
     }
 
+    // addComment (não-fatal no failure path)
+    if (urlStr.match(/\/task\/[^/]+\/comment/) && opts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
     return fakeResponse(404, {});
   });
 
   const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
   await runSchedulerBatch();
 
-  assert.strictEqual(captures.updateTaskCalled, false, 'updateTask NÃO deve ser chamado em caso de erro');
+  // Em falha (erro GHL): updateTask deve mover task de volta a 'a agendar'
+  assert.strictEqual(captures.updateTaskCalled, true, 'updateTask DEVE ser chamado em caso de erro GHL — move de volta a a agendar');
+  assert.strictEqual(captures.updateTaskStatus, 'a agendar', 'updateTask deve ser chamado com status = "a agendar"');
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito');
   assert.ok(captures.errMsg.length <= 200, `Mensagem deve ter <= 200 chars. Tamanho: ${captures.errMsg.length}`);
 
@@ -1302,9 +1407,13 @@ test('validação: erro do GHL em createPost → CF_ERRO_PUBLICACAO com mensagem
 // ---------------------------------------------------------------------------
 
 test('isolamento (D-18): falha na 1ª task não aborta o batch — 2ª e 3ª agendadas com sucesso', async (t) => {
+  // Nova state machine:
+  //   - task1 (Formato inválido) → falha → updateTask(a agendar) + setCustomField(CF_ERRO_PUBLICACAO) + addComment
+  //   - task2 e task3 (válidas) → sucesso → setCustomField(CF_GHL_POST_ID) + addComment (SEM updateTask)
   const zipBuffer = makeZipBuffer([{ name: '1.jpg', content: 'img' }]);
-  const scheduledIds = [];
+  const successCommentIds = [];  // ids de tasks que receberam addComment de sucesso
   let errWritebacks = 0;
+  let batch001UpdateTaskCalled = false;
 
   // 3 tasks: task1 tem Formato inválido (orderindex 999); task2 e task3 são válidas
   const task1 = {
@@ -1376,11 +1485,15 @@ test('isolamento (D-18): falha na 1ª task não aborta o batch — 2ª e 3ª age
       return fakeResponse(201, { results: { post: { _id: `PID_BATCH_${Date.now()}` } } });
     }
 
-    // ClickUp updateTask (sucesso para tasks 2 e 3)
-    if (urlStr.match(/\/task\/(BATCH002|BATCH003)/) && opts?.method === 'PUT') {
-      const taskId = urlStr.match(/\/task\/(BATCH\d+)/)?.[1];
-      scheduledIds.push(taskId);
+    // ClickUp updateTask:
+    //   - BATCH001 → falha → deve chamar updateTask(a agendar) no failure path
+    //   - BATCH002/BATCH003 → sucesso → NÃO deve chamar updateTask
+    if (urlStr.includes('/task/BATCH001') && opts?.method === 'PUT') {
+      batch001UpdateTaskCalled = true;
       return fakeResponse(200, {});
+    }
+    if (urlStr.match(/\/task\/(BATCH002|BATCH003)/) && opts?.method === 'PUT') {
+      assert.fail('updateTask NÃO deve ser chamado para tasks de sucesso (BATCH002/BATCH003)');
     }
 
     // ClickUp setCustomField — pode ser CF_GHL_POST_ID (sucesso) ou CF_ERRO_PUBLICACAO (falha)
@@ -1392,19 +1505,31 @@ test('isolamento (D-18): falha na 1ª task não aborta o batch — 2ª e 3ª age
       return fakeResponse(200, {});
     }
 
+    // ClickUp addComment
+    if (urlStr.match(/\/task\/(BATCH002|BATCH003)\/comment/) && opts?.method === 'POST') {
+      const taskId = urlStr.match(/\/task\/(BATCH\d+)\//)?.[1];
+      if (taskId) successCommentIds.push(taskId);
+      return fakeResponse(200, {});
+    }
+    if (urlStr.match(/\/task\/[^/]+\/comment/) && opts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
     return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
   });
 
   const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
   await runSchedulerBatch();
 
-  // 1ª task deve ter recebido write-back de erro
+  // 1ª task deve ter recebido write-back de erro (setCustomField CF_ERRO_PUBLICACAO)
   assert.strictEqual(errWritebacks, 1, 'BATCH001 deve ter recebido exatamente 1 write-back de CF_ERRO_PUBLICACAO');
+  // 1ª task: updateTask deve ter sido chamado para mover de volta a 'a agendar'
+  assert.strictEqual(batch001UpdateTaskCalled, true, 'BATCH001 deve ter chamado updateTask(a agendar) no failure path');
 
-  // 2ª e 3ª tasks devem ter sido agendadas com sucesso
-  assert.ok(scheduledIds.includes('BATCH002'), 'BATCH002 deve ter sido agendada (updateTask chamado)');
-  assert.ok(scheduledIds.includes('BATCH003'), 'BATCH003 deve ter sido agendada (updateTask chamado)');
-  assert.strictEqual(scheduledIds.length, 2, 'exatamente 2 tasks devem ter sido agendadas');
+  // 2ª e 3ª tasks devem ter sido agendadas com sucesso via addComment (não updateTask)
+  assert.ok(successCommentIds.includes('BATCH002'), 'BATCH002 deve ter recebido addComment de sucesso');
+  assert.ok(successCommentIds.includes('BATCH003'), 'BATCH003 deve ter recebido addComment de sucesso');
+  assert.strictEqual(successCommentIds.length, 2, 'exatamente 2 tasks devem ter recebido addComment de sucesso');
 
   fetchMock.mock.restore();
 });
@@ -1456,6 +1581,7 @@ test('segurança (D-15): CF_ERRO_PUBLICACAO não contém http/pit-/pk_ e é trun
       });
     }
 
+    // updateTask — DEVE ser chamado no failure path para mover de volta a STATUS_A_AGENDAR
     if (urlStr.includes('/task/TASK001') && opts?.method === 'PUT') {
       return fakeResponse(200, {});
     }
@@ -1463,6 +1589,11 @@ test('segurança (D-15): CF_ERRO_PUBLICACAO não contém http/pit-/pk_ e é trun
     if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
       const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
       captures.errMsg = body.value;
+      return fakeResponse(200, {});
+    }
+
+    // addComment (failure path — não-fatal)
+    if (urlStr.match(/\/task\/[^/]+\/comment/) && opts?.method === 'POST') {
       return fakeResponse(200, {});
     }
 
@@ -1558,14 +1689,19 @@ test('SCHEDULER_ONLY_TASK_ID: com 3 tasks elegíveis e env var definida, somente
         return fakeResponse(201, { results: { post: { _id: 'PID_ONLY' } } });
       }
 
-      // updateTask — capturar qual task foi agendada
+      // updateTask — NÃO deve ser chamado no path de sucesso
       if (urlStr.match(/\/task\/(ONLY\d+)/) && opts?.method === 'PUT') {
-        const taskId = urlStr.match(/\/task\/(ONLY\d+)/)?.[1];
-        if (taskId) processedIds.push(taskId);
-        return fakeResponse(200, {});
+        assert.fail('updateTask NÃO deve ser chamado no path de sucesso — task já está agendado');
       }
 
       if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+        return fakeResponse(200, {});
+      }
+
+      // addComment de sucesso — capturar qual task foi processada
+      if (urlStr.match(/\/task\/(ONLY\d+)\/comment/) && opts?.method === 'POST') {
+        const taskId = urlStr.match(/\/task\/(ONLY\d+)\/comment/)?.[1];
+        if (taskId) processedIds.push(taskId);
         return fakeResponse(200, {});
       }
 
@@ -1584,8 +1720,8 @@ test('SCHEDULER_ONLY_TASK_ID: com 3 tasks elegíveis e env var definida, somente
     delete process.env.SCHEDULER_ONLY_TASK_ID;
   }
 
-  // Somente ONLY002 deve ter sido processada
-  assert.strictEqual(processedIds.length, 1, 'exatamente 1 task deve ter sido processada');
+  // Somente ONLY002 deve ter sido processada (addComment de sucesso chamado)
+  assert.strictEqual(processedIds.length, 1, 'exatamente 1 task deve ter sido processada (addComment de sucesso)');
   assert.strictEqual(processedIds[0], 'ONLY002', 'a task processada deve ser ONLY002 (a alvo)');
 });
 
@@ -1682,6 +1818,11 @@ test('falha na task: addComment chamado com taskId e mensagem contendo o erro, s
       ]}}] });
     }
 
+    // updateTask — DEVE ser chamado no failure path para mover de volta a STATUS_A_AGENDAR
+    if (urlStr.includes('/task/FAIL_COMMENT_001') && opts?.method === 'PUT') {
+      return fakeResponse(200, {});
+    }
+
     // setCustomField (CF_ERRO_PUBLICACAO write-back)
     if (urlStr.match(/\/task\/FAIL_COMMENT_001\/field\//) && opts?.method === 'POST') {
       const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
@@ -1695,11 +1836,6 @@ test('falha na task: addComment chamado com taskId e mensagem contendo o erro, s
       const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
       captures.commentText = body.comment_text;
       return fakeResponse(200, {});
-    }
-
-    // updateTask — não deve ser chamado no path de falha
-    if (urlStr.includes('/task/') && opts?.method === 'PUT') {
-      assert.fail('updateTask NÃO deve ser chamado no path de falha');
     }
 
     return fakeResponse(404, { err: `Unexpected URL: ${urlStr}` });
@@ -1793,6 +1929,11 @@ test('falha na task: se addComment lança, CF_ERRO_PUBLICACAO ainda é gravado e
       return fakeResponse(201, { results: { post: { _id: 'PID_OK' } } });
     }
 
+    // updateTask para task1 no failure path (move de volta a 'a agendar')
+    if (urlStr.includes('/task/COMMENT_FAIL_T1') && opts?.method === 'PUT') {
+      return fakeResponse(200, {});
+    }
+
     // setCustomField (CF_ERRO_PUBLICACAO para task1, ou CF_GHL_POST_ID para task2)
     if (urlStr.match(/\/task\/COMMENT_FAIL_T1\/field\//) && opts?.method === 'POST') {
       const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : (opts.body ?? {});
@@ -1805,13 +1946,18 @@ test('falha na task: se addComment lança, CF_ERRO_PUBLICACAO ainda é gravado e
       throw new Error('Falha simulada no addComment');
     }
 
-    // updateTask para task2 (sucesso)
+    // updateTask para task2 NÃO deve ser chamado no path de sucesso
     if (urlStr.includes('/task/COMMENT_FAIL_T2') && opts?.method === 'PUT') {
-      captures.nextTaskProcessed = true;
-      return fakeResponse(200, {});
+      assert.fail('updateTask NÃO deve ser chamado no path de sucesso para task2');
     }
 
     if (urlStr.match(/\/task\/[^/]+\/field\//) && opts?.method === 'POST') {
+      return fakeResponse(200, {});
+    }
+
+    // addComment para task2 (sucesso) → sinal de que task2 foi processada
+    if (urlStr.includes('/task/COMMENT_FAIL_T2/comment') && opts?.method === 'POST') {
+      captures.nextTaskProcessed = true;
       return fakeResponse(200, {});
     }
 
@@ -1828,8 +1974,8 @@ test('falha na task: se addComment lança, CF_ERRO_PUBLICACAO ainda é gravado e
   // CF_ERRO_PUBLICACAO deve ter sido escrito mesmo com addComment lançando
   assert.ok(captures.errMsg !== null, 'CF_ERRO_PUBLICACAO deve ter sido escrito antes do addComment falhar');
 
-  // O batch deve ter continuado e processado a task2
-  assert.strictEqual(captures.nextTaskProcessed, true, 'a task2 deve ter sido processada após a falha de addComment na task1');
+  // O batch deve ter continuado e processado a task2 (addComment de sucesso chamado)
+  assert.strictEqual(captures.nextTaskProcessed, true, 'a task2 deve ter sido processada após a falha de addComment na task1 (addComment sucesso chamado)');
 
   fetchMock.mock.restore();
 });
