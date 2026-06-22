@@ -14,7 +14,7 @@ O projeto entrega a "cola" entre o ClickUp (painel de produção de conteúdo) e
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Fundação (Config + Clients + Logging)** - `.env`, clients autenticados de ClickUp e GHL e logging estruturado prontos para uso (completed 2026-06-22)
-- [ ] **Phase 2: Agendamento ClickUp → GHL** - Task `a agendar` vira post agendado no GHL e volta como `agendado` no ClickUp
+- [x] **Phase 2: Agendamento ClickUp → GHL** - Task `a agendar` vira post agendado no GHL e volta como `agendado` no ClickUp (completed 2026-06-22)
 - [ ] **Phase 3: Sincronização GHL → ClickUp (Webhook)** - Publicação/erro no GHL reflete automaticamente na task do ClickUp
 - [ ] **Phase 4: Operação & Robustez** - Serviço roda continuamente, sobrevive a falhas de rede e é deployável via README
 
@@ -59,7 +59,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-  - [ ] 02-03-PLAN.md — Wave 2 (refinamento): carrossel multi-mídia ordenado + validação completa (Formato/Stories/data/conteúdo) + write-back de Erro de publicação + isolamento de falha (SCH-04, SCH-07)
+  - [x] 02-03-PLAN.md — Wave 2 (refinamento): carrossel multi-mídia ordenado + validação completa (Formato/Stories/data/conteúdo) + write-back de Erro de publicação + isolamento de falha (SCH-04, SCH-07) — COMPLETE (2026-06-22): 67/67 tests GREEN; carousel type='post'+media[N] in order; Stories/empty rejected; write-back CF_ERRO_PUBLICACAO safe+truncated; D-18 isolation proven
 
 ### Phase 3: Sincronização GHL → ClickUp (Webhook)
 
@@ -99,6 +99,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
-| 2. Agendamento ClickUp → GHL | 2/3 | In progress (02-03 Wave 2 next) | - |
+| 2. Agendamento ClickUp → GHL | 3/3 | Complete | 2026-06-22 |
 | 3. Sincronização GHL → ClickUp (Webhook) | 0/TBD | Not started | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |

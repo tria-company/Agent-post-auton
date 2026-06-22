@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: in-progress
-stopped_at: Phase 02 Plan 03 — Wave 2 (carousel + error write-back) — ready to start
-last_updated: "2026-06-22T19:23:00Z"
-last_activity: 2026-06-22 -- Phase 02 Plan 02 complete; core pipeline 56/56 tests GREEN; batch ClickUp→GHL running
+stopped_at: Phase 02 complete — Phase 03 (Webhook GHL→ClickUp) is next
+last_updated: "2026-06-22T19:38:00Z"
+last_activity: 2026-06-22 -- Phase 02 Plan 03 complete; carousel + validation + error write-back; 67/67 tests GREEN; Phase 2 all 3 plans DONE
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 53
+  completed_plans: 5
+  percent: 65
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 ## Current Position
 
-Phase: 02 (agendamento-clickup-ghl) — IN PROGRESS
-Plan: 3 of 3 (02-01 + 02-02 complete; 02-03 Wave 2 is next)
-Status: Active — ready to execute 02-03-PLAN.md
-Last activity: 2026-06-22 -- Plan 02-02 complete (core pipeline ponta-a-ponta; 56/56 tests GREEN)
+Phase: 02 (agendamento-clickup-ghl) — COMPLETE; Phase 03 (Webhook) is next
+Plan: Phase 2 complete (3/3 plans done); ready to plan Phase 03
+Status: Phase 2 complete — all 5 plans (3 Phase 1 + 2 Phase 2 plans... actually 2+3=5) complete
+Last activity: 2026-06-22 -- Plan 02-03 complete (carousel + validation + error write-back; 67/67 tests GREEN)
 
-Progress: [█████░░░░░] 53%
+Progress: [██████░░░░] 65%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [█████░░░░░] 53%
 | Phase 01-funda-o-config-clients-logging P02 | 4min | 3 tasks | 4 files |
 | Phase 02-agendamento-clickup-ghl P01 | 120min | 3 tasks | 7 files |
 | Phase 02-agendamento-clickup-ghl P02 | 90min | 3 tasks | 9 files |
+| Phase 02-agendamento-clickup-ghl P03 | 15min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,10 @@ Recent decisions affecting current work:
 - [Phase 02-02]: Real Formato labels confirmed: Reels/Carrossel/Stories/Feed estático (Auton list 901327135553)
 - [Phase 02-02]: GHL upload url (not fileId) used in createPost media[].url (A2 confirmed)
 - [Phase 02-02]: Plano 02 handles single media (first file); Plano 03 extends to carousel
+- [Phase 02-03]: Carousel uses type='post' + media[N] in numeric order — NEVER type='carousel' (Pitfall 1/A1 confirmed)
+- [Phase 02-03]: Error write-back: CF_ERRO_PUBLICACAO with short safe message (AppError.message, <= 200 chars, no URL/token); NO status change on failure
+- [Phase 02-03]: Stories/empty/unknown Formato rejected before any GHL call; date-past validation added (D-13/D-14)
+- [Phase 02-03]: Batch isolation confirmed: per-task try/catch; failure → write-back + continue (D-18/SCH-07)
 
 ### Pending Todos
 
@@ -106,6 +111,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T19:23:00Z
-Stopped at: Completed 02-02-PLAN.md — ready to start 02-03-PLAN.md (Wave 2: carousel + error write-back)
-Resume file: .planning/phases/02-agendamento-clickup-ghl/02-03-PLAN.md
+Last session: 2026-06-22T19:38:00Z
+Stopped at: Completed 02-03-PLAN.md — Phase 2 complete; ready to plan Phase 03 (Webhook GHL→ClickUp)
+Resume file: None — Phase 2 complete; use /gsd-plan-phase for Phase 03
