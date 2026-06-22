@@ -34,6 +34,8 @@ const ROOT = resolve(__dirname, '..');
  * Phase 2: inclui as 7 novas variáveis (CFG-01):
  *   CU_FIELD_GHL_POST_ID, CU_FIELD_LINK_DO_POST, CU_FIELD_FORMATO,
  *   GHL_ACCOUNT_ID, GHL_USER_ID, STATUS_A_AGENDAR, STATUS_AGENDADO
+ * Phase 3: inclui as variáveis novas (CFG-01):
+ *   CLICKUP_WEBHOOK_SECRET, WEBHOOK_PORT, POLL_INTERVAL_MS, STATUS_PUBLICADO
  */
 const FULL_ENV = {
   CLICKUP_TOKEN: 'pk_test_placeholder_token_value',
@@ -56,6 +58,8 @@ const FULL_ENV = {
   GHL_USER_ID: 'test-user-id-ghl-placeholder',
   STATUS_A_AGENDAR: 'a agendar',
   STATUS_AGENDADO: 'agendado',
+  // Phase 3 — servidor webhook + polling (CFG-01)
+  CLICKUP_WEBHOOK_SECRET: 'test-webhook-secret-placeholder',
   LOG_LEVEL: 'info',
   // Sem arquivo .env real — dotenv não vai encontrar nada, mas spawnSync envia process.env
   DOTENV_CONFIG_PATH: '/nonexistent/.env.test.nofile',
@@ -274,5 +278,71 @@ test('config Phase 2: faltar GHL_USER_ID → fail-fast exit code !=0', () => {
   assert.ok(
     mentionsTerm,
     `Stderr/stdout deve citar a variável ou indicar config inválida. Recebido: ${result.stderr?.slice(0, 300)}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3 — Testes das 4 novas variáveis de webhook/polling (CFG-01)
+// ---------------------------------------------------------------------------
+
+test('config Phase 3: env completo com CLICKUP_WEBHOOK_SECRET → exit code 0', () => {
+  // FULL_ENV já inclui CLICKUP_WEBHOOK_SECRET — confirma que o env completo
+  // (incluindo Phase 3) sai com exit code 0
+  const result = runConfigImport(FULL_ENV);
+
+  assert.strictEqual(
+    result.status,
+    0,
+    `Exit code esperado 0 com env completo (Phase 3). Stderr: ${result.stderr?.slice(0, 500)}`,
+  );
+});
+
+test('config Phase 3: faltar CLICKUP_WEBHOOK_SECRET → fail-fast exit code !=0', () => {
+  const env = { ...FULL_ENV };
+  delete env.CLICKUP_WEBHOOK_SECRET;
+
+  const result = runConfigImport(env);
+
+  assert.notStrictEqual(
+    result.status,
+    0,
+    `Exit code esperado !=0 quando CLICKUP_WEBHOOK_SECRET ausente`,
+  );
+  const combinedOutput = (result.stderr ?? '') + (result.stdout ?? '');
+  const mentionsTerm =
+    combinedOutput.toLowerCase().includes('clickup_webhook_secret') ||
+    combinedOutput.toLowerCase().includes('config') ||
+    combinedOutput.toLowerCase().includes('inválid');
+  assert.ok(
+    mentionsTerm,
+    `Stderr/stdout deve citar CLICKUP_WEBHOOK_SECRET. Recebido: ${result.stderr?.slice(0, 300)}`,
+  );
+});
+
+test('config Phase 3: WEBHOOK_PORT e POLL_INTERVAL_MS têm defaults quando ausentes', () => {
+  // Ambos têm .default() → config válida sem eles
+  const env = { ...FULL_ENV };
+  delete env.WEBHOOK_PORT;
+  delete env.POLL_INTERVAL_MS;
+
+  const result = runConfigImport(env);
+
+  assert.strictEqual(
+    result.status,
+    0,
+    `Exit code esperado 0 — WEBHOOK_PORT e POLL_INTERVAL_MS têm defaults. Stderr: ${result.stderr?.slice(0, 500)}`,
+  );
+});
+
+test('config Phase 3: STATUS_PUBLICADO tem default publicado quando ausente', () => {
+  const env = { ...FULL_ENV };
+  delete env.STATUS_PUBLICADO;
+
+  const result = runConfigImport(env);
+
+  assert.strictEqual(
+    result.status,
+    0,
+    `Exit code esperado 0 — STATUS_PUBLICADO tem default. Stderr: ${result.stderr?.slice(0, 500)}`,
   );
 });
