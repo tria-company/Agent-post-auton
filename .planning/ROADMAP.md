@@ -88,7 +88,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 **Wave 3** *(depende dos Planos 02 e 03)*
 
-  - [ ] 03-04-PLAN.md — Operacionalização: poller embutido no servidor (setInterval) + setup:webhooks idempotente + Caddyfile + deploy README + smoke ao vivo (TRIG-01, SYNC-01)
+  - [~] 03-04-PLAN.md — Operacionalização: poller embutido no servidor (setInterval) + setup:webhooks idempotente + Caddyfile + deploy README + smoke ao vivo (TRIG-01, SYNC-01) — Tasks 1+2 DONE (commits 84a1480, 13acdfd); awaiting live smoke checkpoint
 
 ### Phase 4: Operação & Robustez
 
@@ -113,5 +113,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
 | 2. Agendamento ClickUp → GHL | 3/3 | Complete | 2026-06-22 |
-| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 3/4 | Executing | - |
+| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 3/4 | Awaiting Checkpoint | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |

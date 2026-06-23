@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: executing
-stopped_at: "Phase 03-04 — ready to start (03-03 complete)"
-last_updated: "2026-06-22T21:38:00Z"
-last_activity: "2026-06-22 -- Phase 03-03 COMPLETE: ghlStatusPoller pollGhlPosts() implemented; 8 poller tests RED→GREEN; 100/100 passing"
+status: awaiting-checkpoint
+stopped_at: "Phase 03-04 — Task 3 live checkpoint (Tasks 1+2 committed; awaiting operator VPS smoke)"
+last_updated: "2026-06-23T01:00:00Z"
+last_activity: "2026-06-23 -- Phase 03-04 Tasks 1+2 DONE: poller wired (84a1480) + setup-webhooks+Caddyfile+deploy README (13acdfd); stopped at live smoke checkpoint"
 progress:
   total_phases: 4
   completed_phases: 2
@@ -25,10 +25,10 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 
 ## Current Position
 
-Phase: 03 (webhooks-bidirecionais-clickup-ghl) — EXECUTING
-Plan: 4 of 4 (03-03 COMPLETE — starting 03-04)
-Status: Executing Phase 03 — Plan 03 complete, Plan 04 next (operationalization: setInterval + server wiring)
-Last activity: 2026-06-22 -- Phase 03-03 COMPLETE: ghlStatusPoller pollGhlPosts() implemented; 8 poller tests RED→GREEN; 100/100 passing
+Phase: 03 (webhooks-bidirecionais-clickup-ghl) — AWAITING CHECKPOINT
+Plan: 4 of 4 (03-04 Tasks 1+2 DONE — stopped at live smoke checkpoint)
+Status: Awaiting operator live smoke on VPS — Tasks 1+2 committed (poller wired, setup:webhooks + Caddyfile + deploy README); continuation agent writes SUMMARY after smoke resolves
+Last activity: 2026-06-23 -- Phase 03-04 Tasks 1+2 DONE: poller wired (84a1480) + setup-webhooks+Caddyfile+deploy README (13acdfd)
 
 Progress: [████████░░] 78%
 
@@ -61,6 +61,7 @@ Progress: [████████░░] 78%
 | Phase 03-webhooks-bidirecionais-clickup-ghl P01 | ~60min+human | 3 tasks | 6 files |
 | Phase 03-webhooks-bidirecionais-clickup-ghl P02 | ~12min | 3 tasks | 6 files |
 | Phase 03-webhooks-bidirecionais-clickup-ghl P03 | ~25min | 2 tasks | 2 files |
+| Phase 03-webhooks-bidirecionais-clickup-ghl P04 | ~25min | 2 tasks | 7 files | (partial — awaiting live checkpoint)
 
 ## Accumulated Context
 
@@ -106,6 +107,11 @@ Recent decisions affecting current work:
 - [Phase 03-03]: Dedup key: postId:published|failed; TTL 2h; module-level singleton
 - [Phase 03-03]: IG fields defensive: instagramPostDetails.igMediaId first, then top-level candidates
 - [Phase 03-03]: Test deviation: unique post IDs per test case required to avoid module-level dedup collision
+- [Phase 03-04]: In-flight guard (_pollInFlight flag) prevents overlapping poll passes if a pass runs longer than POLL_INTERVAL_MS
+- [Phase 03-04]: Initial poll pass runs immediately on server boot (no wait for first interval)
+- [Phase 03-04]: PUBLIC_WEBHOOK_URL is optional in config (only setup:webhooks needs it; server does not require it)
+- [Phase 03-04]: setup:webhooks idempotent: GET team webhooks → find by endpoint+list_id (Number() cast) → PUT if exists / POST if new
+- [Phase 03-04]: Caddy reverse_proxy preserves raw body → HMAC works in production (D-08 confirmed; no smee.io)
 
 ### Pending Todos
 
@@ -133,6 +139,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T21:38:00Z
-Stopped at: Phase 03-03 COMPLETE — ready to start 03-04 (operationalization: setInterval + server wiring)
-Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-04-PLAN.md
+Last session: 2026-06-23T01:00:00Z
+Stopped at: Phase 03-04 Tasks 1+2 committed; stopped at live smoke checkpoint (Task 3 — blocking-human gate)
+Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-04-PLAN.md (continuation: Task 3 checkpoint + SUMMARY after smoke)
