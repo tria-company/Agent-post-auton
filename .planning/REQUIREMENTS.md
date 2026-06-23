@@ -23,12 +23,12 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 
 ### Sincronização GHL → ClickUp (SYNC)
 
-- [ ] **SYNC-01**: Loop de polling periódico consulta o GHL pelo status dos posts agendados (publicado/erro) — o GHL não emite webhook de post (confirmado na pesquisa Phase 3)
-- [ ] **SYNC-02**: Validar autenticidade do webhook (segredo/assinatura) antes de processar
-- [ ] **SYNC-03**: Mapear o post GHL recebido de volta para a task ClickUp (via id do post salvo)
-- [ ] **SYNC-04**: Ao publicar, mover a task para `publicado` e preencher `IG Media ID` e `Link publicado`
-- [ ] **SYNC-05**: Ao falhar a publicação no GHL, preencher `Erro de publicação` na task
-- [ ] **SYNC-06**: Webhook idempotente — reentrega do mesmo evento não duplica atualização
+- [x] **SYNC-01**: Loop de polling periódico consulta o GHL pelo status dos posts agendados (publicado/erro) — o GHL não emite webhook de post (confirmado na pesquisa Phase 3)
+- [x] **SYNC-02**: Validar autenticidade do webhook (segredo/assinatura) antes de processar — N/A for polling: outbound GHL token; documented in ghlStatusPoller.js header
+- [x] **SYNC-03**: Mapear o post GHL recebido de volta para a task ClickUp (via id do post salvo)
+- [x] **SYNC-04**: Ao publicar, mover a task para `publicado` e preencher `IG Media ID` e `Link publicado`
+- [x] **SYNC-05**: Ao falhar a publicação no GHL, preencher `Erro de publicação` na task
+- [x] **SYNC-06**: Webhook idempotente — reentrega do mesmo evento não duplica atualização
 
 ### Gatilho ClickUp → GHL por Webhook (TRIG)
 
@@ -71,12 +71,12 @@ Integração ClickUp → GHL (Instagram) com sincronização bidirecional de sta
 | SCH-05 | Phase 2 | Pending |
 | SCH-06 | Phase 2 | Pending |
 | SCH-07 | Phase 2 | Pending |
-| SYNC-01 | Phase 3 | Pending |
-| SYNC-02 | Phase 3 | Pending |
-| SYNC-03 | Phase 3 | Pending |
-| SYNC-04 | Phase 3 | Pending |
-| SYNC-05 | Phase 3 | Pending |
-| SYNC-06 | Phase 3 | Pending |
+| SYNC-01 | Phase 3 | Complete (03-03) |
+| SYNC-02 | Phase 3 | Complete (03-03, N/A for polling) |
+| SYNC-03 | Phase 3 | Complete (03-03) |
+| SYNC-04 | Phase 3 | Complete (03-03) |
+| SYNC-05 | Phase 3 | Complete (03-03) |
+| SYNC-06 | Phase 3 | Complete (03-03) |
 | TRIG-01 | Phase 3 | Pending |
 | TRIG-02 | Phase 3 | Pending |
 | TRIG-03 | Phase 3 | Pending |

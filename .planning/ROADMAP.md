@@ -84,7 +84,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Wave 2** *(paralelo — sem overlap de arquivos; depende do Plano 01)*
 
   - [x] 03-02-PLAN.md — Slice ClickUp→GHL (TDD): servidor node:http + HMAC verify + DedupeStore + handler taskStatusUpdated→processTask + /health; npm start mantido (TRIG-01..05) — COMPLETE (2026-06-22): 3 RED→GREEN; 92/92 tests passing; HMAC timingSafeEqual; 200-then-setImmediate; serve script added
-  - [ ] 03-03-PLAN.md — Slice GHL→ClickUp polling (TDD): ghlStatusPoller write-back publicado/falha + dedup + isolamento por task (SYNC-01..06)
+  - [x] 03-03-PLAN.md — Slice GHL→ClickUp polling (TDD): ghlStatusPoller write-back publicado/falha + dedup + isolamento por task (SYNC-01..06) — COMPLETE (2026-06-22): 8 RED→GREEN; 100/100 tests passing; pollGhlPosts() exports ready for Plan 03-04 setInterval wiring
 
 **Wave 3** *(depende dos Planos 02 e 03)*
 
@@ -113,5 +113,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 |-------|----------------|--------|-----------|
 | 1. Fundação (Config + Clients + Logging) | 2/2 | Complete   | 2026-06-22 |
 | 2. Agendamento ClickUp → GHL | 3/3 | Complete | 2026-06-22 |
-| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 2/4 | Executing | - |
+| 3. Webhooks Bidirecionais (ClickUp ⇄ GHL) | 3/4 | Executing | - |
 | 4. Operação & Robustez | 0/TBD | Not started | - |

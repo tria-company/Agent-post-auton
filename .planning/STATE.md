@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: executing
-stopped_at: "Phase 03-03 — ready to start (03-02 complete)"
-last_updated: "2026-06-22T23:07:23Z"
-last_activity: "2026-06-22 -- Phase 03-02 COMPLETE: verifySignature + DedupeStore + handleClickUp + node:http server; 3 RED→GREEN; 92/92 passing"
+stopped_at: "Phase 03-04 — ready to start (03-03 complete)"
+last_updated: "2026-06-22T21:38:00Z"
+last_activity: "2026-06-22 -- Phase 03-03 COMPLETE: ghlStatusPoller pollGhlPosts() implemented; 8 poller tests RED→GREEN; 100/100 passing"
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 9
-  completed_plans: 7
-  percent: 67
+  completed_plans: 8
+  percent: 78
 ---
 
 # Project State
@@ -26,9 +26,9 @@ See: .planning/PROJECT.md (updated 2026-06-22)
 ## Current Position
 
 Phase: 03 (webhooks-bidirecionais-clickup-ghl) — EXECUTING
-Plan: 3 of 4 (03-02 COMPLETE — starting 03-03)
-Status: Executing Phase 03 — Plan 02 complete, Plan 03 next (GHL status poller)
-Last activity: 2026-06-22 -- Phase 03-02 COMPLETE: verifySignature + DedupeStore + handleClickUp + node:http server; 3 RED→GREEN; 92/92 passing
+Plan: 4 of 4 (03-03 COMPLETE — starting 03-04)
+Status: Executing Phase 03 — Plan 03 complete, Plan 04 next (operationalization: setInterval + server wiring)
+Last activity: 2026-06-22 -- Phase 03-03 COMPLETE: ghlStatusPoller pollGhlPosts() implemented; 8 poller tests RED→GREEN; 100/100 passing
 
 Progress: [████████░░] 78%
 
@@ -60,6 +60,7 @@ Progress: [████████░░] 78%
 | Phase 02-agendamento-clickup-ghl P03 | 15min | 2 tasks | 2 files |
 | Phase 03-webhooks-bidirecionais-clickup-ghl P01 | ~60min+human | 3 tasks | 6 files |
 | Phase 03-webhooks-bidirecionais-clickup-ghl P02 | ~12min | 3 tasks | 6 files |
+| Phase 03-webhooks-bidirecionais-clickup-ghl P03 | ~25min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -99,6 +100,12 @@ Recent decisions affecting current work:
 - [Phase 03-02]: loadFormatoOptionsMap() called per-webhook event (no cache); mirrors runSchedulerBatch bootstrap; acceptable within rate limits
 - [Phase 03-02]: DedupeStore TTL 10min; key webhook_id:history_item_id (TRIG-04)
 - [Phase 03-02]: POLLER_INTEGRATION_POINT comment in server/index.js for Plan 03-04 to add ghlStatusPoller setInterval
+- [Phase 03-03]: SYNC-02 N/A documented — no GHL webhook, polling uses outbound GHL token
+- [Phase 03-03]: Published signal: publishedAt != null (primary); failed: status=failed AND publishedAt==null
+- [Phase 03-03]: On failure: clear CF_GHL_POST_ID ('') to enable retry (D-01)
+- [Phase 03-03]: Dedup key: postId:published|failed; TTL 2h; module-level singleton
+- [Phase 03-03]: IG fields defensive: instagramPostDetails.igMediaId first, then top-level candidates
+- [Phase 03-03]: Test deviation: unique post IDs per test case required to avoid module-level dedup collision
 
 ### Pending Todos
 
@@ -126,6 +133,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-06-22T23:07:23Z
-Stopped at: Phase 03-02 COMPLETE — ready to start 03-03 (GHL status poller)
-Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-03-PLAN.md
+Last session: 2026-06-22T21:38:00Z
+Stopped at: Phase 03-03 COMPLETE — ready to start 03-04 (operationalization: setInterval + server wiring)
+Resume file: .planning/phases/03-webhooks-bidirecionais-clickup-ghl/03-04-PLAN.md
