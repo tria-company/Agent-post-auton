@@ -330,6 +330,57 @@ export async function processTask(task, formatoOptionsMap) {
 }
 
 /**
+ * Write-back de falha de agendamento — COMPARTILHADO pelo batch (runSchedulerBatch)
+ * e pelo handler de webhook (src/server/routes/clickup.js). Garante o mesmo comportamento
+ * nos dois caminhos (correção do bug de integração 03-02 — o webhook só logava, sem write-back):
+ *   1. updateTask(STATUS_A_AGENDAR) — devolve a task para correção/retry
+ *   2. setCustomField(CF_ERRO_PUBLICACAO, mensagem curta e segura)
+ *   3. addComment(❌ ...) — visível no card
+ * Cada passo é defensivo (D-18): se um lança, loga e segue.
+ *
+ * @param {{ id: string }} task
+ * @param {unknown} err
+ * @returns {Promise<void>}
+ */
+export async function writeBackFailure(task, err) {
+  const taskLog = withContext({ module: 'scheduler', taskId: task.id });
+
+  const rawMsg = err instanceof AppError
+    ? err.message
+    : String(err?.message ?? 'Erro desconhecido');
+  const mensagem = rawMsg.slice(0, MAX_ERRO_MSG_LEN);
+
+  taskLog.warn({ step: 'processTask.error', errMsg: mensagem }, 'Falha ao processar task');
+
+  try {
+    await clickup.updateTask(task.id, { status: config.STATUS_A_AGENDAR });
+  } catch (updateErr) {
+    taskLog.warn(
+      { step: 'processTask.writeback.updateTask.error', updateErrMsg: updateErr?.message },
+      'Falha ao devolver task para a agendar',
+    );
+  }
+
+  try {
+    await clickup.setCustomField(task.id, config.CF_ERRO_PUBLICACAO, mensagem);
+  } catch (writebackErr) {
+    taskLog.warn(
+      { step: 'processTask.writeback.error', writebackErrMsg: writebackErr?.message },
+      'Falha ao gravar Erro de publicação no ClickUp',
+    );
+  }
+
+  try {
+    await clickup.addComment(task.id, `❌ Falha ao agendar: ${mensagem}`);
+  } catch (commentErr) {
+    taskLog.warn(
+      { step: 'processTask.comment.error', commentErrMsg: commentErr?.message },
+      'Falha ao adicionar comentário no ClickUp',
+    );
+  }
+}
+
+/**
  * Executa uma passada batch sobre as tasks elegíveis da lista ClickUp.
  *
  * Cada task é processada de forma isolada — erro em uma task não aborta as demais (D-18).
@@ -417,53 +468,8 @@ export async function runSchedulerBatch() {
     try {
       await processTask(task, formatoOptionsMap);
     } catch (err) {
-      const taskLog = withContext({ module: 'scheduler', taskId: task.id });
-
-      // Normalizar mensagem: AppError.message já normalizado (sem body bruto);
-      // qualquer outro erro: usar .message ou fallback, truncar a MAX_ERRO_MSG_LEN chars.
-      // Defensivamente: nunca incluir http (URL MinIO) nem prefixos de token (D-15/T-02-03).
-      const rawMsg = err instanceof AppError
-        ? err.message
-        : String(err?.message ?? 'Erro desconhecido');
-      const mensagem = rawMsg.slice(0, MAX_ERRO_MSG_LEN);
-
-      // Logar em nível warn SEM a URL do MinIO (T-02-03) — apenas taskId (já no contexto) + mensagem
-      taskLog.warn({ step: 'processTask.error', errMsg: mensagem }, 'Falha ao processar task — continuando batch');
-
-      // Write-back de falha (SCH-07/D-14/D-15) — UAT decision (estado invertido):
-      //   1. updateTask(STATUS_A_AGENDAR): devolve a task para o humano corrigir e retentar
-      //   2. setCustomField(CF_ERRO_PUBLICACAO) com mensagem curta e segura
-      //   3. addComment com a mesma mensagem (comentário visível no card)
-      // Cada passo é defensivo — se um lança, loga e continua (D-18).
-      try {
-        await clickup.updateTask(task.id, { status: config.STATUS_A_AGENDAR });
-      } catch (updateErr) {
-        taskLog.warn(
-          { step: 'processTask.writeback.updateTask.error', updateErrMsg: updateErr?.message },
-          'Falha ao devolver task para a agendar — continuando batch',
-        );
-      }
-
-      try {
-        await clickup.setCustomField(task.id, config.CF_ERRO_PUBLICACAO, mensagem);
-      } catch (writebackErr) {
-        // Write-back falhou (ex: ClickUp fora do ar) — só logar, não propagar
-        taskLog.warn(
-          { step: 'processTask.writeback.error', writebackErrMsg: writebackErr?.message },
-          'Falha ao gravar Erro de publicação no ClickUp — continuando batch',
-        );
-      }
-
-      // Adicionar comentário no card do ClickUp com a mesma mensagem curta e segura.
-      // Falha do comentário é não-fatal — não deve interromper o batch.
-      try {
-        await clickup.addComment(task.id, `❌ Falha ao agendar: ${mensagem}`);
-      } catch (commentErr) {
-        taskLog.warn(
-          { step: 'processTask.comment.error', commentErrMsg: commentErr?.message },
-          'Falha ao adicionar comentário no ClickUp — continuando batch',
-        );
-      }
+      // Write-back de falha compartilhado (batch + webhook) — isola cada task (D-18).
+      await writeBackFailure(task, err);
     }
   }
 

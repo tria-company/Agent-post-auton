@@ -189,3 +189,48 @@ test('handleClickUp: HMAC invalido retorna 401 e nao chama processTask', async (
   assert.strictEqual(res._status, 401, 'HMAC inválido deve retornar 401');
   assert.strictEqual(processTaskCalled, false, 'processTask NÃO deve ser chamado após 401');
 });
+
+// ---------------------------------------------------------------------------
+// Test 4: processTask FALHA → write-back de erro (regressão do bug 03-02)
+//   O handler deve replicar o write-back do batch: updateTask(a agendar) +
+//   setCustomField(Erro de publicação) + addComment(❌). Antes só logava.
+// ---------------------------------------------------------------------------
+
+test('handleClickUp: processTask falha → chama writeBackFailure com a task e o erro', async (t) => {
+  const rawBody = Buffer.from(taskStatusPayload, 'utf8');
+
+  // getTask é a única chamada real → mockar fetch só para devolver a task.
+  t.mock.method(globalThis, 'fetch', async (url, opts = {}) => {
+    if (/\/task\/TASK001$/.test(String(url)) && (opts.method || 'GET') === 'GET') {
+      return fakeResponse(200, { id: 'TASK001', custom_fields: [] });
+    }
+    return fakeResponse(200, {});
+  });
+
+  // Spy do write-back (injetado) — determinístico, sem fetch/Bottleneck.
+  let wbTask = null;
+  let wbErr = null;
+  const { req, res } = makeReqRes({
+    headers: { 'x-signature': makeHmacSig(rawBody, 'secret-correto') },
+    body: taskStatusPayload,
+  });
+
+  const deps = {
+    clickupDedup: { has: () => false, set: () => {} },
+    loadFormatoOptionsMap: async () => ({}),
+    processTaskOverride: async () => { throw new Error('Data no passado'); },
+    writeBackFailureOverride: async (task, err) => { wbTask = task; wbErr = err; },
+    skipSignatureVerify: false,
+    webhookSecret: 'secret-correto',
+  };
+
+  await handleClickUp(req, res, rawBody, deps);
+  assert.strictEqual(res._status, 200, 'Deve responder 200 imediatamente (Pitfall 6)');
+
+  // Aguardar o setImmediate concluir (spy é síncrono — sem rede)
+  await new Promise((r) => setTimeout(r, 30));
+
+  assert.ok(wbTask, 'writeBackFailure deve ser chamado quando processTask falha');
+  assert.strictEqual(wbTask.id, 'TASK001', 'deve passar a task buscada para o write-back');
+  assert.match(wbErr?.message ?? '', /Data no passado/, 'deve passar o erro original para o write-back');
+});

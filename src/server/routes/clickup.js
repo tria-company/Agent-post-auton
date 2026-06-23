@@ -30,7 +30,7 @@ import { config } from '../../config/index.js';
 import { withContext } from '../../lib/logger.js';
 import { verifyClickUpSignature } from '../verifySignature.js';
 import { clickup } from '../../clients/clickup.js';
-import { processTask } from '../../scheduler/pipeline.js';
+import { processTask, writeBackFailure } from '../../scheduler/pipeline.js';
 
 const log = withContext({ module: 'webhook.clickup' });
 
@@ -53,6 +53,7 @@ export async function handleClickUp(req, res, rawBody, deps) {
     clickupDedup,
     loadFormatoOptionsMap,
     processTaskOverride,
+    writeBackFailureOverride,
     webhookSecret,
     skipSignatureVerify,
   } = deps;
@@ -89,6 +90,8 @@ export async function handleClickUp(req, res, rawBody, deps) {
 
   // ---- 4. Processar de forma assíncrona em setImmediate, isolado em try/catch ----
   setImmediate(async () => {
+    // `task` hoisted para fora do try — necessário no catch para o write-back de falha.
+    let task;
     try {
       // Filtro de evento — só processa taskStatusUpdated (TRIG-03)
       if (payload.event !== 'taskStatusUpdated') return;
@@ -106,7 +109,7 @@ export async function handleClickUp(req, res, rawBody, deps) {
       clickupDedup.set(dedupKey);
 
       // getTask obrigatório — payload do webhook não tem custom_fields (Pitfall 2)
-      const task = await clickup.getTask(payload.task_id);
+      task = await clickup.getTask(payload.task_id);
 
       // Carregar mapa orderindex→label do campo Formato (Pitfall 3)
       const formatoOptionsMap = await loadFormatoOptionsMap();
@@ -117,7 +120,18 @@ export async function handleClickUp(req, res, rawBody, deps) {
 
       log.info({ taskId: payload.task_id, dedupKey }, 'Task agendada via webhook');
     } catch (err) {
-      log.error({ err: err.message }, 'Erro no handler ClickUp webhook');
+      log.error({ err: err.message, taskId: payload.task_id }, 'Erro no handler ClickUp webhook');
+      // Write-back de falha — MESMO comportamento do batch (Erro de publicação + volta pra
+      // 'a agendar' + comentário). Antes o handler só logava (bug de integração 03-02).
+      // Só é possível se a task já foi buscada (erro depois do getTask, ex.: validação/GHL).
+      if (task) {
+        try {
+          const writeBack = writeBackFailureOverride ?? writeBackFailure;
+          await writeBack(task, err);
+        } catch (wbErr) {
+          log.error({ err: wbErr?.message }, 'Falha no write-back de erro do webhook');
+        }
+      }
     }
   });
 }
