@@ -25,6 +25,7 @@
  *   CLICKUP_WEBHOOK_SECRET   → CLICKUP_WEBHOOK_SECRET
  *   POLL_INTERVAL_MS         → POLL_INTERVAL_MS  (default: 300000, number)
  *   STATUS_PUBLICADO         → STATUS_PUBLICADO  (default: 'publicado')
+ *   PUBLIC_WEBHOOK_URL       → PUBLIC_WEBHOOK_URL (optional — usado pelo setup:webhooks)
  */
 import 'dotenv/config';
 import { z } from 'zod';
@@ -63,6 +64,11 @@ const EnvSchema = z.object({
   CLICKUP_WEBHOOK_SECRET: z.string().min(1, { message: 'CLICKUP_WEBHOOK_SECRET é obrigatório' }),
   POLL_INTERVAL_MS:       z.string().default('300000').transform(Number),
   STATUS_PUBLICADO:       z.string().min(1).default('publicado'),
+  /** URL pública do VPS atrás do Caddy — usada pelo setup:webhooks para registrar o webhook ClickUp.
+   *  Opcional: o servidor HTTP não precisa desta variável; só o script setup:webhooks usa.
+   *  Exemplo: https://meudominio.com.br/webhook/clickup
+   */
+  PUBLIC_WEBHOOK_URL:     z.string().url({ message: 'PUBLIC_WEBHOOK_URL deve ser uma URL válida' }).optional(),
 
   // Logging
   LOG_LEVEL: z
@@ -108,6 +114,7 @@ const env = parsed.data;
  *   CLICKUP_WEBHOOK_SECRET: string,
  *   POLL_INTERVAL_MS: number,
  *   STATUS_PUBLICADO: string,
+ *   PUBLIC_WEBHOOK_URL: string|undefined,
  *   LOG_LEVEL: string,
  * }>}
  */
@@ -138,5 +145,7 @@ export const config = Object.freeze({
   CLICKUP_WEBHOOK_SECRET: env.CLICKUP_WEBHOOK_SECRET,
   POLL_INTERVAL_MS:       env.POLL_INTERVAL_MS,
   STATUS_PUBLICADO:       env.STATUS_PUBLICADO,
+  // PUBLIC_WEBHOOK_URL — opcional; obrigatório apenas para npm run setup:webhooks
+  PUBLIC_WEBHOOK_URL:     env.PUBLIC_WEBHOOK_URL,
   LOG_LEVEL:           env.LOG_LEVEL,
 });

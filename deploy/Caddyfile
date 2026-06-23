@@ -1,0 +1,32 @@
+# deploy/Caddyfile
+#
+# Caddy reverse proxy para o Agent Posts Auton.
+#
+# Substitua <seu-dominio> pelo domínio real que aponta (registro A) para o IP do VPS.
+# Exemplo: auton.meudominio.com.br
+#
+# TLS automático via Let's Encrypt (padrão do Caddy quando o site tem nome de domínio).
+# O Caddy NÃO reserializa o body — repassa o raw body intacto ao Node.js.
+# Isso é ESSENCIAL para a verificação HMAC-SHA256 do ClickUp funcionar em produção (D-08).
+#
+# Uso:
+#   1. Ajuste o domínio abaixo
+#   2. Ajuste {$WEBHOOK_PORT} no .env ou substitua pelo número diretamente (default: 3000)
+#   3. caddy run --config deploy/Caddyfile
+#      (ou caddy run se o Caddyfile estiver em /etc/caddy/Caddyfile)
+
+<seu-dominio> {
+    # Rotear /webhook/clickup e /health para o servidor Node.js local
+    # O Caddy preserva o body bruto (raw body) — HMAC funciona de verdade
+    reverse_proxy /webhook/clickup localhost:{$WEBHOOK_PORT:3000}
+    reverse_proxy /health           localhost:{$WEBHOOK_PORT:3000}
+
+    # Qualquer outra rota retorna 404 — superfície mínima de ataque
+    respond 404
+
+    # Logs de acesso (opcional — remover em produção com alto volume)
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}

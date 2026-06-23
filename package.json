@@ -11,6 +11,7 @@
     "start": "node src/index.js",
     "smoke": "node src/index.js",
     "serve": "node src/server/index.js",
+    "setup:webhooks": "node scripts/setup-webhooks.js",
     "test": "node --test"
   },
   "keywords": [
