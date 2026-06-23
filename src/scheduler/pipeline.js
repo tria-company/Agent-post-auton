@@ -277,12 +277,13 @@ export async function processTask(task, formatoOptionsMap) {
     }
 
     // --- 6c. Colaborador do Instagram (Collab Post) ---
-    // O Instagram só suporta colaborador em FEED e REELS — NUNCA em Carrossel
-    // (mediaCount 'multiple') nem Stories. Formato do GHL confirmado em posts reais:
+    // Feed (incl. Carrossel) e Reels ACEITAM colaborador (confirmado em produção pelo usuário).
+    // Stories não suporta — mas Stories já é rejeitado em mapFormato, então não chega aqui.
+    // Formato do GHL confirmado em posts reais:
     //   instagramPostDetails.collaborators = { [GHL_ACCOUNT_ID]: ["username", ...] }
     // O username vai SEM @. O campo CF_COLABORADOR é opcional (nem todo post tem collab).
     let instagramPostDetails;
-    if (config.CF_COLABORADOR && mediaCount !== 'multiple') {
+    if (config.CF_COLABORADOR) {
       const rawColab = readCF(task, config.CF_COLABORADOR);
       if (rawColab) {
         const usernames = String(rawColab)
