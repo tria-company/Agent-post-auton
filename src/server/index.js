@@ -9,13 +9,10 @@
  *   - Instanciar DedupeStore (TTL 10 min) e loadFormatoOptionsMap
  *   - Passar { clickupDedup, loadFormatoOptionsMap, webhookSecret } ao handler
  *     (webhookSecret garante que HMAC é sempre verificado em produção — T-03-04)
+ *   - Iniciar loop de polling GHL via setInterval (Plano 03-04, D-06)
  *
  * Entrypoint guard: só inicia o servidor quando executado diretamente (`npm run serve`).
  * Importável sem side-effects para testes e módulos downstream (TRIG-05).
- *
- * PONTO DE INTEGRAÇÃO DO POLLER (Plano 04):
- *   Plano 03-04 importa este módulo e adiciona o setInterval do ghlStatusPoller.
- *   Procurar o comentário "// POLLER_INTEGRATION_POINT" abaixo.
  *
  * `npm start` (runSchedulerBatch, src/index.js) NÃO é alterado (TRIG-05).
  * Este arquivo é usado apenas via `npm run serve` → node src/server/index.js.
@@ -28,6 +25,7 @@ import { handleClickUp } from './routes/clickup.js';
 import { handleHealth } from './routes/health.js';
 import { DedupeStore } from './dedupe.js';
 import { clickup } from '../clients/clickup.js';
+import { pollGhlPosts } from '../poller/ghlStatusPoller.js';
 
 const log = withContext({ module: 'server' });
 
@@ -130,21 +128,9 @@ export const server = http.createServer((req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// POLLER_INTEGRATION_POINT — Plano 03-04 importa e adiciona aqui:
-//
-//   import { pollGhlPosts } from '../poller/ghlStatusPoller.js';
-//   setInterval(() => {
-//     pollGhlPosts().catch(err =>
-//       log.error({ err: err.message }, 'Polling GHL falhou — proxima rodada em breve'),
-//     );
-//   }, config.POLL_INTERVAL_MS);
-//   log.info({ intervalMs: config.POLL_INTERVAL_MS }, 'GHL status poller iniciado');
-//
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Entrypoint guard — inicia o servidor só quando executado diretamente
-// (npm run serve → node src/server/index.js)
+// Entrypoint guard — inicia o servidor e o loop de polling só quando executado
+// diretamente (npm run serve → node src/server/index.js).
+// Importável sem side-effects para testes e módulos downstream (TRIG-05).
 // ---------------------------------------------------------------------------
 
 const __filename = fileURLToPath(import.meta.url);
@@ -154,4 +140,33 @@ if (isEntrypoint) {
   server.listen(config.WEBHOOK_PORT, () => {
     log.info({ port: config.WEBHOOK_PORT }, 'Servidor webhook iniciado');
   });
+
+  // ---------------------------------------------------------------------------
+  // GHL status polling loop — mesmo processo do servidor (D-06, SYNC-01)
+  //
+  // In-flight guard: se uma passada durar mais que POLL_INTERVAL_MS, a próxima
+  // é ignorada em vez de sobrepor, evitando acúmulo de chamadas simultâneas.
+  // ---------------------------------------------------------------------------
+  let _pollInFlight = false;
+
+  const runPollPass = async () => {
+    if (_pollInFlight) {
+      log.warn({ step: 'poller.skip' }, 'Passada anterior ainda em andamento — ignorando intervalo');
+      return;
+    }
+    _pollInFlight = true;
+    try {
+      await pollGhlPosts();
+    } catch (err) {
+      log.error({ err: err.message }, 'Polling GHL falhou — proxima rodada em breve');
+    } finally {
+      _pollInFlight = false;
+    }
+  };
+
+  // Passada inicial imediatamente ao subir (não esperar o primeiro intervalo)
+  runPollPass();
+
+  setInterval(runPollPass, config.POLL_INTERVAL_MS);
+  log.info({ intervalMs: config.POLL_INTERVAL_MS }, 'GHL status poller iniciado');
 }
