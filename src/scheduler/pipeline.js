@@ -276,6 +276,29 @@ export async function processTask(task, formatoOptionsMap) {
       taskLog.info({ step: 'reelCover' }, 'Capa do Reel anexada ao payload (media[0].thumbnail)');
     }
 
+    // --- 6c. Colaborador do Instagram (Collab Post) ---
+    // O Instagram só suporta colaborador em FEED e REELS — NUNCA em Carrossel
+    // (mediaCount 'multiple') nem Stories. Formato do GHL confirmado em posts reais:
+    //   instagramPostDetails.collaborators = { [GHL_ACCOUNT_ID]: ["username", ...] }
+    // O username vai SEM @. O campo CF_COLABORADOR é opcional (nem todo post tem collab).
+    let instagramPostDetails;
+    if (config.CF_COLABORADOR && mediaCount !== 'multiple') {
+      const rawColab = readCF(task, config.CF_COLABORADOR);
+      if (rawColab) {
+        const usernames = String(rawColab)
+          .split(',')
+          .map((u) => u.trim().replace(/^@/, ''))
+          .filter(Boolean);
+        if (usernames.length > 0) {
+          // IG permite 1 colaborador por post; mandamos a lista e o GHL/IG aplica/valida.
+          instagramPostDetails = {
+            collaborators: { [config.GHL_ACCOUNT_ID]: usernames },
+          };
+          taskLog.info({ step: 'collaborator', count: usernames.length }, 'Adicionando colaborador(es) IG ao post');
+        }
+      }
+    }
+
     // --- 7. Criar post agendado no GHL (SCH-04) ---
     // CRÍTICO: payload DEVE incluir userId (422 sem ele — Finding 1 do Wave 0)
     // type: 'post' | 'reel' — NUNCA 'carousel' (Pitfall 1/A1)
@@ -288,6 +311,7 @@ export async function processTask(task, formatoOptionsMap) {
       scheduleDate: scheduleDate,
       media:        mediaItems,
       status:       'scheduled',
+      ...(instagramPostDetails ? { instagramPostDetails } : {}),
     };
 
     taskLog.info({ step: 'createPost', ghlType, mediaCount: mediaItems.length }, 'Criando post agendado no GHL');

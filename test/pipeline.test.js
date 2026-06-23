@@ -327,6 +327,67 @@ test('runSchedulerBatch: happy-path de mídia única → SEM updateTask de statu
 });
 
 // ---------------------------------------------------------------------------
+// TEST: Colaborador IG (Collab Post) — Feed/Reels adiciona instagramPostDetails.collaborators
+// Formato confirmado em posts reais: { [GHL_ACCOUNT_ID]: ["username sem @"] }
+// ---------------------------------------------------------------------------
+
+const CF_COLABORADOR = process.env.CU_FIELD_COLABORADOR ?? '5045ee97-9099-4e38-91bc-61182417df91';
+const GHL_ACCOUNT_ID = process.env.GHL_ACCOUNT_ID ?? 'ACC001';
+
+test('runSchedulerBatch: Feed/Reels com Colaborador → createPost inclui instagramPostDetails.collaborators (sem @)', async (t) => {
+  const calls = [];
+  const taskComColab = makeEligibleTask({
+    custom_fields: [
+      { id: CF_GHL_POST_ID,     value: null },
+      { id: CF_LEGENDA,         value: 'Legenda teste' },
+      { id: CF_LINK_DO_POST,    value: 'https://minio.example.com/media.zip' },
+      { id: CF_FORMATO,         value: FORMATO_FEED_ESTATICO_ORDERINDEX },
+      { id: CF_DATA_PUBLICACAO, value: FUTURE_EPOCH_MS },
+      { id: CF_COLABORADOR,     value: '@drbonanza' }, // com @ → deve ser removido
+    ],
+  });
+
+  const fetchMock = t.mock.method(globalThis, 'fetch', async (url, opts) => {
+    const urlStr = String(url);
+    calls.push({ url: urlStr, method: opts?.method ?? 'GET', body: opts?.body });
+    if (urlStr.includes('/list/') && urlStr.includes('/task?') && (opts?.method ?? 'GET') === 'GET') {
+      const page = Number(new URL(urlStr).searchParams.get('page') ?? '0');
+      return fakeResponse(200, { tasks: page === 0 ? [taskComColab] : [] });
+    }
+    if (urlStr.includes('/field') && (opts?.method ?? 'GET') === 'GET') {
+      return fakeResponse(200, { fields: [{ id: CF_FORMATO, name: 'Formato', type: 'drop_down', type_config: { options: [
+        { orderindex: 0, name: 'Reels' }, { orderindex: 1, name: 'Carrossel' }, { orderindex: 2, name: 'Stories' }, { orderindex: 3, name: 'Feed estático' },
+      ] } }] });
+    }
+    if (urlStr.includes('/medias/upload-file')) return fakeResponse(200, { url: 'https://cdn.ghl.com/x.jpg', fileId: 'FID001' });
+    if (urlStr.includes('/social-media-posting/') && urlStr.includes('/posts') && opts?.method === 'POST') {
+      return fakeResponse(201, { success: true, statusCode: 201, results: { post: { _id: 'PID123', status: 'scheduled' } } });
+    }
+    if (urlStr.includes('/task/TASK001/field/') && opts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('/task/TASK001/comment') && opts?.method === 'POST') return fakeResponse(200, {});
+    if (urlStr.includes('minio.example.com')) {
+      const zip = makeZipBuffer([{ name: '1.jpg', content: 'fake' }]);
+      return { status: 200, ok: true, headers: { get: () => null }, async arrayBuffer() { return zip.buffer.slice(zip.byteOffset, zip.byteOffset + zip.byteLength); }, async json() { return {}; }, async text() { return ''; } };
+    }
+    return fakeResponse(404, { err: urlStr });
+  });
+
+  const { runSchedulerBatch } = await import('../src/scheduler/pipeline.js');
+  await runSchedulerBatch();
+  fetchMock.mock.restore();
+
+  const createPostCall = calls.find((c) => c.url.includes('/posts') && c.method === 'POST');
+  assert.ok(createPostCall, 'createPost deve ter sido chamado');
+  const body = typeof createPostCall.body === 'string' ? JSON.parse(createPostCall.body) : createPostCall.body;
+  assert.ok(body.instagramPostDetails, 'payload deve incluir instagramPostDetails quando há colaborador');
+  assert.deepStrictEqual(
+    body.instagramPostDetails.collaborators,
+    { [GHL_ACCOUNT_ID]: ['drbonanza'] },
+    'collaborators deve mapear GHL_ACCOUNT_ID → [username sem @]',
+  );
+});
+
+// ---------------------------------------------------------------------------
 // TEST 3: Idempotência (RED — vai falhar até Task 3 criar pipeline.js)
 // ---------------------------------------------------------------------------
 

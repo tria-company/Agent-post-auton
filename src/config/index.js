@@ -53,6 +53,10 @@ const EnvSchema = z.object({
   CU_FIELD_LINK_DO_POST: z.string().uuid({ message: 'CU_FIELD_LINK_DO_POST deve ser um UUID válido' }),
   CU_FIELD_FORMATO:      z.string().uuid({ message: 'CU_FIELD_FORMATO deve ser um UUID válido' }),
 
+  // Colaborador do Instagram (Collab Post) — OPCIONAL. Campo short_text com o @username
+  // do colaborador (sem @). Só aplica a Feed/Reels (Carrossel/Stories o IG não suporta).
+  CU_FIELD_COLABORADOR:  z.string().uuid({ message: 'CU_FIELD_COLABORADOR deve ser um UUID válido' }).optional(),
+
   // Phase 2 — conta GHL, user id e nomes de status (CFG-01)
   GHL_ACCOUNT_ID:   z.string().min(1, { message: 'GHL_ACCOUNT_ID é obrigatório' }),
   GHL_USER_ID:      z.string().min(1, { message: 'GHL_USER_ID é obrigatório — obter via GET /users/?locationId=...' }),
@@ -140,6 +144,7 @@ export const config = Object.freeze({
   CF_GHL_POST_ID:      env.CU_FIELD_GHL_POST_ID,
   CF_LINK_DO_POST:     env.CU_FIELD_LINK_DO_POST,
   CF_FORMATO:          env.CU_FIELD_FORMATO,
+  CF_COLABORADOR:      env.CU_FIELD_COLABORADOR,
   // Phase 2 — conta GHL, user id e status (sem prefixo CU_FIELD_; passam direto)
   GHL_ACCOUNT_ID:      env.GHL_ACCOUNT_ID,
   GHL_USER_ID:         env.GHL_USER_ID,
