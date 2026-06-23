@@ -70,6 +70,11 @@ const EnvSchema = z.object({
    */
   PUBLIC_WEBHOOK_URL:     z.string().url({ message: 'PUBLIC_WEBHOOK_URL deve ser uma URL válida' }).optional(),
 
+  // Teto de download do zip de mídia em MB (guarda anti-zip-bomb, T-02-05).
+  // Default 500 MB — cobre vídeos grandes sem arriscar a RAM (o arquivo é carregado em memória).
+  // O GHL aceita vídeo até ~1 GB; ajustar com cautela conforme a RAM do host.
+  MAX_DOWNLOAD_MB:        z.string().default('500').transform(Number),
+
   // Logging
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace'])
@@ -147,5 +152,6 @@ export const config = Object.freeze({
   STATUS_PUBLICADO:       env.STATUS_PUBLICADO,
   // PUBLIC_WEBHOOK_URL — opcional; obrigatório apenas para npm run setup:webhooks
   PUBLIC_WEBHOOK_URL:     env.PUBLIC_WEBHOOK_URL,
+  MAX_DOWNLOAD_MB:        env.MAX_DOWNLOAD_MB,
   LOG_LEVEL:           env.LOG_LEVEL,
 });

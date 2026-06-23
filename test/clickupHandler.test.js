@@ -227,8 +227,9 @@ test('handleClickUp: processTask falha → chama writeBackFailure com a task e o
   await handleClickUp(req, res, rawBody, deps);
   assert.strictEqual(res._status, 200, 'Deve responder 200 imediatamente (Pitfall 6)');
 
-  // Aguardar o setImmediate concluir (spy é síncrono — sem rede)
-  await new Promise((r) => setTimeout(r, 30));
+  // Aguardar o setImmediate concluir — poll robusto (getTask passa pelo rate limiter,
+  // que pode atrasar sob carga paralela; espera até 2s, sai assim que o spy roda).
+  for (let i = 0; i < 100 && !wbTask; i++) await new Promise((r) => setTimeout(r, 20));
 
   assert.ok(wbTask, 'writeBackFailure deve ser chamado quando processTask falha');
   assert.strictEqual(wbTask.id, 'TASK001', 'deve passar a task buscada para o write-back');

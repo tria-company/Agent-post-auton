@@ -21,13 +21,14 @@ import AdmZip from 'adm-zip';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve, basename, extname } from 'node:path';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { config } from '../config/index.js';
 
 // ---------------------------------------------------------------------------
 // Constantes
 // ---------------------------------------------------------------------------
 
-/** Teto de download: 100 MB (proteção contra zip-bomb / downloads gigantes) */
-const MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024;
+/** Teto de download configurável via MAX_DOWNLOAD_MB (default 500 MB) — anti-zip-bomb / downloads gigantes. */
+const MAX_DOWNLOAD_BYTES = config.MAX_DOWNLOAD_MB * 1024 * 1024;
 
 /** Mapeamento extensão → MIME type */
 const MIME_BY_EXT = {

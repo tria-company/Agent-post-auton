@@ -21,6 +21,7 @@ import { existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AppError } from '../src/lib/errors.js';
+import { config } from '../src/config/index.js';
 
 // ---------------------------------------------------------------------------
 // Helper: cria um Buffer de zip válido com os arquivos especificados
@@ -183,8 +184,8 @@ test('downloadAndExtract: buffer sem magic bytes PK\\x03\\x04 lança erro de con
 // TEST: Zip-bomb guard — arrayBuffer > 100 MB lança antes de descomprimir (T-02-05)
 // ---------------------------------------------------------------------------
 
-test('downloadAndExtract: arrayBuffer > 100 MB lança erro de limite antes de descomprimir', async (t) => {
-  const MAX_BYTES = 100 * 1024 * 1024;
+test('downloadAndExtract: arrayBuffer acima do limite lança erro antes de descomprimir', async (t) => {
+  const MAX_BYTES = config.MAX_DOWNLOAD_MB * 1024 * 1024;
 
   // Simula retorno de arrayBuffer com tamanho > 100 MB
   const fetchMock = t.mock.method(globalThis, 'fetch', async () => ({
