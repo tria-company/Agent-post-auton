@@ -23,6 +23,7 @@ const ERROR_TRANSLATIONS = [
   [/(rate limit|too many requests)/i, 'Limite de requisições atingido — tente novamente em instantes'],
   [/(unauthorized|invalid token|forbidden)/i, 'Falha de autenticação com o GHL (token inválido ou sem permissão)'],
   [/not found/i, 'Recurso não encontrado no GHL'],
+  [/(413|payload too large|request entity too large|file too large)/i, 'Arquivo grande demais para o GHL — vídeo máx. 500MB, imagem máx. 25MB. Comprima o arquivo.'],
 ];
 
 /**

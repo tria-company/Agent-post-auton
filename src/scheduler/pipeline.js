@@ -251,8 +251,19 @@ export async function processTask(task, formatoOptionsMap) {
     const filesToUpload = mediaCount === 'multiple' ? mediaFiles : mediaFiles.slice(0, 1);
     const mediaItems = [];
     for (const file of filesToUpload) {
-      taskLog.info({ step: 'uploadMedia', fileName: file.name }, 'Fazendo upload de mídia para o GHL');
       const mime = mimeFromFilename(file.name);
+      // Limites de upload do GHL (HTTP 413 acima disso): vídeo 500MB, imagem 25MB.
+      // Validar ANTES do upload para dar mensagem clara em PT em vez do "413" cru.
+      const isVideo = mime.startsWith('video/');
+      const maxBytes = (isVideo ? 500 : 25) * 1024 * 1024;
+      if (file.buffer.length > maxBytes) {
+        const mb = (file.buffer.length / 1024 / 1024).toFixed(1);
+        throw new Error(
+          `${isVideo ? 'Vídeo' : 'Imagem'} "${file.name}" excede o limite do GHL ` +
+          `(${isVideo ? '500MB' : '25MB'}; recebido ${mb}MB) — comprima o arquivo`,
+        );
+      }
+      taskLog.info({ step: 'uploadMedia', fileName: file.name }, 'Fazendo upload de mídia para o GHL');
       const { url } = await ghl.uploadMedia(file.buffer, file.name, mime);
       mediaItems.push({ url, type: mime });
     }
