@@ -48,7 +48,7 @@
 
 import { config } from '../config/index.js';
 import { withContext } from '../lib/logger.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, translateError } from '../lib/errors.js';
 import { clickup } from '../clients/clickup.js';
 import { ghl } from '../clients/ghl.js';
 import { downloadAndExtract, cleanupTmp, mimeFromFilename } from '../lib/zip.js';
@@ -373,7 +373,9 @@ export async function writeBackFailure(task, err) {
   const rawMsg = err instanceof AppError
     ? err.message
     : String(err?.message ?? 'Erro desconhecido');
-  const mensagem = rawMsg.slice(0, MAX_ERRO_MSG_LEN);
+  // Traduz erros conhecidos do GHL/ClickUp para PT antes de exibir no ClickUp.
+  // (Nossas mensagens de validação já estão em PT e passam intactas.)
+  const mensagem = translateError(rawMsg).slice(0, MAX_ERRO_MSG_LEN);
 
   taskLog.warn({ step: 'processTask.error', errMsg: mensagem }, 'Falha ao processar task');
 

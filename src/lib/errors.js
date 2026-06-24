@@ -6,6 +6,38 @@
  * logando APENAS status + código — nunca headers nem corpo bruto (T-01-05).
  */
 
+/**
+ * Mapeia mensagens de erro conhecidas (GHL/ClickUp, em inglês) para português,
+ * para exibição amigável no ClickUp (campo "Erro de publicação" + comentários).
+ * Mensagens não mapeadas são mantidas como estão (adicionar tradução conforme aparecerem).
+ *
+ * @type {Array<[RegExp, string]>}
+ */
+const ERROR_TRANSLATIONS = [
+  [/schedule date must be after current date/i, 'Data muito próxima — o Instagram exige agendar com mais antecedência (use ~15 min ou mais)'],
+  [/must be after current date/i, 'A data de agendamento precisa estar mais no futuro'],
+  [/unable to confirm whether your post was published/i, 'O Instagram não confirmou a publicação — confira o perfil; se não estiver lá, tente novamente em alguns minutos'],
+  [/(not authorized for this scope|token is not authorized)/i, 'Token do GHL sem permissão (escopo) para esta ação'],
+  [/user ?id (must be a string|should not be empty)/i, 'Configuração de usuário do GHL (GHL_USER_ID) ausente ou inválida'],
+  [/(unprocessable entity|invalid input|validation failed)/i, 'Dados inválidos enviados ao GHL'],
+  [/(rate limit|too many requests)/i, 'Limite de requisições atingido — tente novamente em instantes'],
+  [/(unauthorized|invalid token|forbidden)/i, 'Falha de autenticação com o GHL (token inválido ou sem permissão)'],
+  [/not found/i, 'Recurso não encontrado no GHL'],
+];
+
+/**
+ * Traduz uma mensagem de erro para português quando reconhecida.
+ * @param {unknown} msg
+ * @returns {string}
+ */
+export function translateError(msg) {
+  const s = Array.isArray(msg) ? msg.join('; ') : String(msg ?? '');
+  for (const [re, pt] of ERROR_TRANSLATIONS) {
+    if (re.test(s)) return pt;
+  }
+  return s;
+}
+
 export class AppError extends Error {
   /**
    * @param {object} options

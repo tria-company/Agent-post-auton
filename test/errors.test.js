@@ -15,7 +15,29 @@
 import 'dotenv/config';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AppError } from '../src/lib/errors.js';
+import { AppError, translateError } from '../src/lib/errors.js';
+
+// ---------------------------------------------------------------------------
+// translateError: erros conhecidos do GHL → PT; desconhecidos mantidos
+// ---------------------------------------------------------------------------
+test('translateError: "Schedule Date must be after current date" → PT', () => {
+  const pt = translateError('Schedule Date must be after current date in ISO format');
+  assert.match(pt, /Data muito próxima/i);
+  assert.ok(!/schedule date/i.test(pt), 'não deve conter o texto em inglês');
+});
+
+test('translateError: array de mensagens é unido e traduzido', () => {
+  assert.match(translateError(['userId must be a string', 'userId should not be empty']), /GHL_USER_ID/i);
+});
+
+test('translateError: mensagem já em PT (nossa validação) passa intacta', () => {
+  assert.strictEqual(translateError('Data no passado'), 'Data no passado');
+  assert.strictEqual(translateError('Sem mídia após fallback'), 'Sem mídia após fallback');
+});
+
+test('translateError: inglês desconhecido é mantido (sem tradução forçada)', () => {
+  assert.strictEqual(translateError('Some unexpected weird error xyz'), 'Some unexpected weird error xyz');
+});
 
 // ---------------------------------------------------------------------------
 // Helper: cria um Response-like fake (subset de globalThis.Response)

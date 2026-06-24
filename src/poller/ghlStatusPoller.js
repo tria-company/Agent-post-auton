@@ -42,6 +42,7 @@ import { clickup } from '../clients/clickup.js';
 import { ghl } from '../clients/ghl.js';
 import { readCF } from '../scheduler/pipeline.js';
 import { DedupeStore } from '../server/dedupe.js';
+import { translateError } from '../lib/errors.js';
 
 const log = withContext({ module: 'poller' });
 
@@ -117,7 +118,8 @@ function resolveFailureReason(post) {
     post.failureReason ??
     post.error ??
     `GHL post status: ${post.status ?? 'failed'}`;
-  return sanitizeErrorMsg(raw);
+  // Traduz erros conhecidos do GHL para PT antes de gravar no ClickUp.
+  return sanitizeErrorMsg(translateError(raw));
 }
 
 /**
